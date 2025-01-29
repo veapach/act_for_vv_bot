@@ -31,8 +31,11 @@ user_photos = {}
 user_data = {}
 
 
-def log_message(action, username):
+def log_message(action, message):
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    username = message.from_user.username
+    if not username:
+        username = f"{message.from_user.first_name} {message.from_user.id}"
     print(f"🕒 [{current_time}] 📋 [LOG] - {action} @{username}")
 
 
@@ -42,8 +45,7 @@ async def start_handler(message: Message):
         "Привет! Отправь мне несколько фото, и я вставлю их в отчет. Когда закончишь, нажми кнопку <b>Готово</b>.",
         parse_mode="HTML",
     )
-    username = message.from_user.username or "неизвестный"
-    log_message("👤 Запрос от нового пользователя", username)
+    log_message("👤 Запрос от нового пользователя", message)
 
 
 @router.message(F.photo)
@@ -64,8 +66,7 @@ async def photo_handler(message: Message):
             reply_markup=keyboard,
             parse_mode="HTML",
         )
-        username = message.from_user.username or "неизвестный"
-        log_message("📷 Пользователь отправил фото", username)
+        log_message("📷 Пользователь отправил фото", message)
 
 
 @router.message(F.text == "Готово ✅")
@@ -81,8 +82,7 @@ async def done_handler(message: Message):
     await message.reply(
         "📅 Пожалуйста, введите дату в формате ДД.ММ.ГГГГ:", parse_mode="HTML"
     )
-    username = message.from_user.username or "неизвестный"
-    log_message("🖼️ Фото от пользователя сохранены", username)
+    log_message("🖼️ Фото от пользователя сохранены", message)
 
     # Инициализируем данные пользователя
     user_data[user_id] = {"photos": user_photos[user_id]}
@@ -100,8 +100,7 @@ async def date_handler(message: Message):
 
     user_data[user_id]["date"] = message.text
     await message.reply("📍 Пожалуйста, введите адрес:", parse_mode="HTML")
-    username = message.from_user.username or "неизвестный"
-    log_message("📅 Дата от пользователя сохранена", username)
+    log_message("📅 Дата от пользователя сохранена", message)
 
 
 @router.message(F.text)
@@ -113,9 +112,8 @@ async def address_handler(message: Message):
 
     user_data[user_id]["address"] = message.text
     await message.reply("📝 Создаю документ, подождите немного...", parse_mode="HTML")
-    username = message.from_user.username or "неизвестный"
     log_message(
-        "📍 Адрес от пользователя сохранен, началась обработка документа", username
+        "📍 Адрес от пользователя сохранен, началась обработка документа", message
     )
 
     try:
@@ -124,7 +122,7 @@ async def address_handler(message: Message):
 
         # Отправка документа пользователю
         await message.answer_document(FSInputFile(output_file))
-        log_message("📄 Готовый отчет отправлен пользователю", username)
+        log_message("📄 Готовый отчет отправлен пользователю", message)
 
         # Очистка временных данных
         os.remove(output_file)
