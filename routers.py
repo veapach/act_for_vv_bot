@@ -24,7 +24,12 @@ checklist_keyboard = InlineKeyboardMarkup(
         [
             InlineKeyboardButton(text="✅ Да", callback_data="work_yes"),
             InlineKeyboardButton(text="❌ Нет", callback_data="work_no"),
-        ]
+        ],
+        [
+            InlineKeyboardButton(
+                text="📋 Оставить стандартные значения", callback_data="work_default"
+            ),
+        ],
     ]
 )
 
@@ -278,13 +283,29 @@ async def defects_handler(message: Message, state: FSMContext):
     log_message("📋 Начато заполнение чек-листа работ", message)
 
 
-@router.callback_query(lambda c: c.data in ["work_yes", "work_no"])
+@router.callback_query(lambda c: c.data in ["work_yes", "work_no", "work_default"])
 async def process_work_step(callback_query: types.CallbackQuery, state: FSMContext):
     user_id = callback_query.from_user.id
     current_data = await state.get_data()
 
     current_work = current_data.get("current_work", 0)
     completed_works = current_data.get("completed_works", [])
+
+    if callback_query.data == "work_default":
+        # Если выбраны стандартные значения, добавляем все работы
+        completed_works = list(range(1, len(WORKS_LIST) + 1))
+        # Сразу переходим к созданию документа
+        await callback_query.message.edit_text(
+            "📝 Создаю документ, подождите немного...", parse_mode="HTML"
+        )
+        user_data[user_id]["works"] = "\n".join(
+            [f"{i}. {WORKS_LIST[num-1]}" for i, num in enumerate(completed_works, 1)]
+        )
+        await process_document(callback_query.message, user_id, callback_query)
+        await callback_query.message.edit_text("✅ Готово!", parse_mode="HTML")
+        await state.clear()
+        await callback_query.answer()
+        return
 
     # Если пользователь выбрал "Да", добавляем работу в список
     if callback_query.data == "work_yes":
@@ -294,19 +315,28 @@ async def process_work_step(callback_query: types.CallbackQuery, state: FSMConte
 
     # Если есть еще работы, показываем следующую
     if current_work < len(WORKS_LIST):
+        # Создаем клавиатуру без кнопки стандартных значений
+        next_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Да", callback_data="work_yes"),
+                    InlineKeyboardButton(text="❌ Нет", callback_data="work_no"),
+                ]
+            ]
+        )
+
         await callback_query.message.edit_text(
-            f"❓ {WORKS_LIST[current_work]}", reply_markup=checklist_keyboard
+            f"❓ {WORKS_LIST[current_work]}", reply_markup=next_keyboard
         )
         await state.update_data(
             current_work=current_work, completed_works=completed_works
         )
     else:
-        # Если это была последняя работа
+        # Остальной код без изменений
         await callback_query.message.edit_text(
             "📝 Создаю документ, подождите немного...", parse_mode="HTML"
         )
 
-        # Формируем список выполненных работ
         if completed_works:
             works_text = "\n".join(
                 [
@@ -317,15 +347,9 @@ async def process_work_step(callback_query: types.CallbackQuery, state: FSMConte
         else:
             works_text = "Работы не проводились"
 
-        # Сохраняем список работ в данных пользователя
         user_data[user_id]["works"] = works_text
-
-        # Создаем документ
         await process_document(callback_query.message, user_id, callback_query)
-
-        # После создания документа меняем текст
         await callback_query.message.edit_text("✅ Готово!", parse_mode="HTML")
-
         await state.clear()
 
     await callback_query.answer()
