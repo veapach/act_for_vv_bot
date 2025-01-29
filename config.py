@@ -16,9 +16,7 @@ user_photos = {}
 user_data = {}
 
 
-def log_message(action, message):
+async def log_message(text, user=None):
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    username = message.from_user.username
-    if not username:
-        username = f"{message.from_user.first_name} {message.from_user.id}"
-    print(f"🕒 [{current_time}] 📋 [LOG] - {action} @{username}")
+    user_info = f"[USER: {user}] " if user else ""
+    print(f"🕒 [{current_time}] 📋 {user_info}[LOG] - {text}")

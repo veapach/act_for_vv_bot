@@ -13,37 +13,20 @@ from document_generator import generate_document
 from aiogram.types import FSInputFile
 import os
 
-done_button = KeyboardButton(text="Готово ✅")
-keyboard = ReplyKeyboardMarkup(keyboard=[[done_button]], resize_keyboard=True)
-
-skip_button = InlineKeyboardButton(text="Пропуск", callback_data="skip")
-skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[skip_button]])
-
-checklist_keyboard = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Да", callback_data="work_yes"),
-            InlineKeyboardButton(text="❌ Нет", callback_data="work_no"),
-        ],
-        [
-            InlineKeyboardButton(
-                text="📋 Оставить стандартные значения", callback_data="work_default"
-            ),
-        ],
-    ]
-)
-
 router = Router()
 
-
 class UserForm(StatesGroup):
+    waiting_for_photos = State()
+    waiting_for_date = State()
     waiting_for_address = State()
-    classification = State()
-    materials = State()
-    recommendations = State()
-    defects = State()
+    waiting_for_classification = State()
+    waiting_for_materials = State()
+    waiting_for_recommendations = State()
+    waiting_for_defects = State()
     checklist = State()
 
+new_report_button = KeyboardButton(text="📝 Новый отчет")
+main_keyboard = ReplyKeyboardMarkup(keyboard=[[new_report_button]], resize_keyboard=True)
 
 WORKS_LIST = [
     "Ежемесячный технический осмотр оборудования на предмет его работоспособности",
@@ -57,309 +40,366 @@ WORKS_LIST = [
     "Проверка настройки микропроцессоров",
 ]
 
+def get_report_keyboard(user_id):
+    data = user_data.get(user_id, {})
+    buttons = [
+        [InlineKeyboardButton(
+            text=f"{'✅' if 'photos' in data else '❌'} Фотографии",
+            callback_data="upload_photos"
+        )],
+        [InlineKeyboardButton(
+            text=f"{'✅' if 'date' in data else '❌'} Дата",
+            callback_data="upload_date"
+        )],
+        [InlineKeyboardButton(
+            text=f"{'✅' if 'address' in data else '❌'} Адрес",
+            callback_data="upload_address"
+        )],
+        [InlineKeyboardButton(
+            text=f"{'✅' if 'classification' in data else '❌'} Классификация",
+            callback_data="upload_classification"
+        )],
+        [InlineKeyboardButton(
+            text=f"{'✅' if 'materials' in data else '❌'} Материалы",
+            callback_data="upload_materials"
+        )],
+        [InlineKeyboardButton(
+            text=f"{'✅' if 'recommendations' in data else '❌'} Рекомендации",
+            callback_data="upload_recommendations"
+        )],
+        [InlineKeyboardButton(
+            text=f"{'✅' if 'defects' in data else '❌'} Дефекты",
+            callback_data="upload_defects"
+        )],
+        [InlineKeyboardButton(
+            text=f"{'✅' if 'works' in data else '❌'} Чек-лист работ",
+            callback_data="upload_works"
+        )],
+    ]
+    
+    # Добавляем кнопку "Готово" в любом случае
+    buttons.append([InlineKeyboardButton(text="✅ Готово", callback_data="finish_report")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+async def update_report_message(message: Message, user_id: int):
+    await message.answer(
+        "📋 Создание отчета\nВыберите, что хотите заполнить:",
+        reply_markup=get_report_keyboard(user_id),
+        parse_mode="HTML"
+    )
 
 @router.message(F.text == "/start")
 async def start_handler(message: Message):
     await message.reply(
-        "Привет! Отправь мне несколько фото, и я вставлю их в отчет. Когда закончишь, нажми кнопку <b>Готово</b>.",
-        parse_mode="HTML",
+        "Привет! Нажми кнопку 📝 Новый отчет, чтобы начать.",
+        reply_markup=main_keyboard,
+        parse_mode="HTML"
     )
-    log_message("👤 Запрос от нового пользователя", message)
 
-
-@router.message(F.photo)
-async def photo_handler(message: Message):
+@router.message(F.text == "📝 Новый отчет")
+async def new_report_handler(message: Message):
     user_id = message.from_user.id
+    user_data[user_id] = {}
+    user_photos[user_id] = []
+    await update_report_message(message, user_id)
 
+@router.callback_query(F.data.startswith("upload_"))
+async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
+    action = callback.data.split("_")[1]
+    user = callback.from_user
+    username = user.username or f"{user.first_name} (ID: {user.id})"
+    log_text = f"Начал заполнение {action}"
+    await log_message(log_text, user=username)
+    
+    if action in user_data.get(user.id, {}):
+        # Если данные уже существуют, очищаем их
+        if action == "photos":
+            user_photos[user.id] = []
+        else:
+            user_data[user.id][action] = None
+    
+    messages_map = {
+        "photos": "📸 Отправьте фотографии для отчета (можно отправить несколько). После завершения нажмите кнопку Готово",
+        "date": "📅 Введите дату в формате ДД.ММ.ГГГГ",
+        "address": "📍 Введите адрес",
+        "classification": "🏷️ Введите классификацию или нажмите Пропуск",
+        "materials": "🛠️ Введите материалы или нажмите Пропуск",
+        "recommendations": "💡 Введите рекомендации или нажмите Пропуск",
+        "defects": "🔍 Введите выявленные дефекты или нажмите Пропуск",
+        "works": "📋 Заполните чек-лист работ"
+    }
+    
+    states_map = {
+        "photos": UserForm.waiting_for_photos,
+        "date": UserForm.waiting_for_date,
+        "address": UserForm.waiting_for_address,
+        "classification": UserForm.waiting_for_classification,
+        "materials": UserForm.waiting_for_materials,
+        "recommendations": UserForm.waiting_for_recommendations,
+        "defects": UserForm.waiting_for_defects,
+        "works": UserForm.checklist
+    }
+
+    skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Пропуск", callback_data="skip")]])
+    
+    if action == "works":
+        # Сразу запускаем чек-лист вместо простого сообщения
+        await start_checklist(callback, state)
+        return
+    
+    await state.set_state(states_map[action])
+    
+    if action == "photos":
+        done_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Готово", callback_data="photos_done")]])
+        reply_markup = done_keyboard
+    else:
+        reply_markup = skip_keyboard if action in ["classification", "materials", "recommendations", "defects"] else None
+    
+    await callback.message.edit_text(
+        messages_map[action],
+        reply_markup=reply_markup,
+        parse_mode="HTML"
+    )
+
+@router.message(UserForm.waiting_for_photos)
+async def photo_handler(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    username = message.from_user.username or f"{message.from_user.first_name} (ID: {message.from_user.id})"
+    
+    if not message.photo and not message.document:
+        await message.reply("❌ Пожалуйста, отправьте фотографию")
+        return
+        
     if user_id not in user_photos:
         user_photos[user_id] = []
-
-    highest_quality_photo = max(message.photo, key=lambda p: p.file_size)
-    user_photos[user_id].append(highest_quality_photo.file_id)
-
-    if len(user_photos[user_id]) == 1:
-        await message.reply(
-            "📸 Фото получено! Отправь ещё или нажми кнопку <b>Готово</b>, чтобы завершить.",
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
-        log_message("📷 Пользователь отправил фото", message)
-
-
-@router.message(F.text == "Готово ✅")
-async def done_handler(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-
-    if user_id not in user_photos or not user_photos[user_id]:
-        await message.reply(
-            "⚠️ Вы ещё не отправили ни одной фотографии.", parse_mode="HTML"
-        )
+    
+    file_id = None
+    if message.photo:
+        # Для обычных фото
+        highest_quality_photo = max(message.photo, key=lambda p: p.file_size)
+        file_id = highest_quality_photo.file_id
+    elif message.document and message.document.mime_type.startswith('image/'):
+        # Для документов-изображений (включая iPhone HEIC)
+        file_id = message.document.file_id
+    else:
+        await message.reply("❌ Пожалуйста, отправьте изображение")
         return
+    
+    user_photos[user_id].append(file_id)
+    user_data[user_id]["photos"] = user_photos[user_id]
+    
+    # Проверяем, было ли уже отправлено сообщение
+    media_group_id = message.media_group_id
+    if not media_group_id or len(user_photos[user_id]) == 1:
+        done_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Готово", callback_data="photos_done")]])
+        await message.reply("📸 Фото добавлено! Отправьте еще или нажмите Готово", reply_markup=done_keyboard)
+    
+    await log_message(f"Добавил фото", user=username)
 
-    await message.reply(
-        "📅 Пожалуйста, введите дату в формате ДД.ММ.ГГГГ:", parse_mode="HTML"
-    )
-    log_message("🖼️ Фото от пользователя сохранены", message)
+@router.callback_query(F.data == "photos_done")
+async def photos_done_handler(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    username = callback.from_user.username or f"{callback.from_user.first_name} (ID: {callback.from_user.id})"
+    
+    if not user_photos.get(user_id):
+        await callback.message.edit_text("❌ Необходимо добавить хотя бы одно фото")
+        return
+    
+    await log_message("Завершил загрузку фото", user=username)
+    await update_report_message(callback.message, user_id)
+    await state.clear()
 
-    user_data[user_id] = {"photos": user_photos[user_id]}
-    await state.set_state(UserForm.classification)
-
-
-@router.message(F.text.regexp(r"\d{2}\.\d{2}\.\d{4}"))
+@router.message(UserForm.waiting_for_date)
 async def date_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-
-    if user_id not in user_data:
-        await message.reply(
-            "⚠️ Пожалуйста, сначала нажмите 'Готово ✅'.", parse_mode="HTML"
-        )
+    username = message.from_user.username or f"{message.from_user.first_name} (ID: {message.from_user.id})"
+    
+    # Проверка формата даты
+    import re
+    if not re.match(r"^\d{2}\.\d{2}\.\d{4}$", message.text):
+        await message.reply("❌ Пожалуйста, введите дату в формате ДД.ММ.ГГГГ")
         return
-
+    
+    try:
+        from datetime import datetime
+        datetime.strptime(message.text, "%d.%m.%Y")
+    except ValueError:
+        await message.reply("❌ Пожалуйста, введите корректную дату")
+        return
+    
     user_data[user_id]["date"] = message.text
-    await message.reply("📍 Пожалуйста, введите адрес:", parse_mode="HTML")
-    log_message("📅 Дата от пользователя сохранена", message)
-    await state.set_state(UserForm.waiting_for_address)
-
+    await log_message(f"Добавил дату: {message.text}", user=username)
+    await update_report_message(message, user_id)
+    await state.clear()
 
 @router.message(UserForm.waiting_for_address)
 async def address_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-
     user_data[user_id]["address"] = message.text
-    await message.reply(
-        "🏷️ Пожалуйста, введите классификацию или нажмите 'Пропуск', чтобы оставить 'Печь':",
-        reply_markup=skip_keyboard,
-        parse_mode="HTML",
-    )
-    log_message(
-        "📍 Адрес от пользователя сохранен, запрашивается классификация", message
-    )
-    await state.set_state(UserForm.classification)
+    await update_report_message(message, user_id)
+    await state.clear()
 
-
-@router.message(UserForm.classification)
+@router.message(UserForm.waiting_for_classification)
 async def classification_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-
     user_data[user_id]["classification"] = message.text
-    await message.reply(
-        "🛠️ Пожалуйста, введите материалы, применяемые при ТО, или нажмите 'Пропуск':",
-        reply_markup=skip_keyboard,
-        parse_mode="HTML",
-    )
-    log_message("🏷️ Классификация от пользователя сохранена", message)
-    await state.set_state(UserForm.materials)
+    await update_report_message(message, user_id)
+    await state.clear()
 
-
-@router.message(UserForm.materials)
+@router.message(UserForm.waiting_for_materials)
 async def materials_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-
     user_data[user_id]["materials"] = message.text
-    await message.reply(
-        "💡 Пожалуйста, введите рекомендации или нажмите 'Пропуск':",
-        reply_markup=skip_keyboard,
-        parse_mode="HTML",
-    )
-    log_message("🛠️ Материалы от пользователя сохранены", message)
-    await state.set_state(UserForm.recommendations)
+    await update_report_message(message, user_id)
+    await state.clear()
 
-
-@router.message(UserForm.recommendations)
+@router.message(UserForm.waiting_for_recommendations)
 async def recommendations_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-
     user_data[user_id]["recommendations"] = message.text
-    await message.reply(
-        "🔍 Пожалуйста, введите выявленные дефекты при ТО или нажмите 'Пропуск':",
-        reply_markup=skip_keyboard,
-        parse_mode="HTML",
-    )
-    log_message("💡 Рекомендации от пользователя сохранены", message)
-    await state.set_state(UserForm.defects)
+    await update_report_message(message, user_id)
+    await state.clear()
 
-
-@router.callback_query(F.data == "skip")
-async def skip_handler(callback_query: types.CallbackQuery, state: FSMContext):
-    user_id = callback_query.from_user.id
-    message = callback_query.message
-
-    if user_id not in user_data:
-        await message.answer(
-            "⚠️ Произошла ошибка: данные сессии утеряны. Пожалуйста, начните заново.",
-            parse_mode="HTML",
-        )
-        await state.clear()
-        return
-
-    current_state = await state.get_state()
-
-    try:
-        if current_state == UserForm.classification.state:
-            user_data[user_id]["classification"] = "Печь"
-            await message.answer(
-                "🛠️ Пожалуйста, введите материалы, применяемые при ТО, или нажмите 'Пропуск':",
-                reply_markup=skip_keyboard,
-                parse_mode="HTML",
-            )
-            log_message(
-                "🏷️ Классификация пропущена, запрашиваются материалы", callback_query
-            )
-            await state.set_state(UserForm.materials)
-        elif current_state == UserForm.materials.state:
-            user_data[user_id]["materials"] = ""
-            await message.answer(
-                "💡 Пожалуйста, введите рекомендации или нажмите 'Пропуск':",
-                reply_markup=skip_keyboard,
-                parse_mode="HTML",
-            )
-            log_message(
-                "🛠️ Материалы пропущены, запрашиваются рекомендации", callback_query
-            )
-            await state.set_state(UserForm.recommendations)
-        elif current_state == UserForm.recommendations.state:
-            user_data[user_id]["recommendations"] = ""
-            await message.answer(
-                "🔍 Пожалуйста, введите выявленные дефекты при ТО или нажмите 'Пропуск':",
-                reply_markup=skip_keyboard,
-                parse_mode="HTML",
-            )
-            log_message(
-                "💡 Рекомендации пропущены, запрашиваются дефекты", callback_query
-            )
-            await state.set_state(UserForm.defects)
-        elif current_state == UserForm.defects.state:
-            user_data[user_id]["defects"] = ""
-            log_message(
-                "🔍 Дефекты пропущены, начинается заполнение чек-листа", callback_query
-            )
-
-            await message.answer(
-                "📋 Заполняем чек-лист о проведенных работах", parse_mode="HTML"
-            )
-
-            await state.update_data(current_work=0, completed_works=[])
-
-            sent_message = await message.answer(
-                f"❓ {WORKS_LIST[0]}",
-                reply_markup=checklist_keyboard,
-                parse_mode="HTML",
-            )
-
-            await state.update_data(message_id=sent_message.message_id)
-            await state.set_state(UserForm.checklist)
-
-        await callback_query.answer()
-    except Exception as e:
-        log_message(f"❌ Ошибка в skip_handler: {str(e)}", callback_query)
-        await message.answer(f"❌ Произошла ошибка: {str(e)}", parse_mode="HTML")
-
-
-@router.message(UserForm.defects)
+@router.message(UserForm.waiting_for_defects)
 async def defects_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user_data[user_id]["defects"] = message.text
+    await update_report_message(message, user_id)
+    await state.clear()
 
-    await message.reply(
-        "📋 Заполняем чек-лист о проведенных работах", parse_mode="HTML"
-    )
-
-    await state.update_data(current_work=0, completed_works=[])
-
-    sent_message = await message.answer(
-        f"❓ {WORKS_LIST[0]}", reply_markup=checklist_keyboard, parse_mode="HTML"
-    )
-
-    await state.update_data(message_id=sent_message.message_id)
-    await state.set_state(UserForm.checklist)
-    log_message("📋 Начато заполнение чек-листа работ", message)
-
-
-@router.callback_query(lambda c: c.data in ["work_yes", "work_no", "work_default"])
-async def process_work_step(callback_query: types.CallbackQuery, state: FSMContext):
-    user_id = callback_query.from_user.id
-    current_data = await state.get_data()
-
-    current_work = current_data.get("current_work", 0)
-    completed_works = current_data.get("completed_works", [])
-
-    if callback_query.data == "work_default":
-        completed_works = list(range(1, len(WORKS_LIST) + 1))
-        await callback_query.message.edit_text(
-            "📝 Создаю документ, подождите немного...", parse_mode="HTML"
-        )
-        user_data[user_id]["works"] = "\n".join(
-            [f"{i}. {WORKS_LIST[num-1]}" for i, num in enumerate(completed_works, 1)]
-        )
-        await process_document(callback_query.message, user_id, callback_query)
-        await callback_query.message.edit_text("✅ Готово!", parse_mode="HTML")
+@router.callback_query(F.data == "skip")
+async def skip_handler(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    current_state = await state.get_state()
+    
+    default_values = {
+        "UserForm:waiting_for_classification": "Печь",
+        "UserForm:waiting_for_materials": "",
+        "UserForm:waiting_for_recommendations": "",
+        "UserForm:waiting_for_defects": ""
+    }
+    
+    if current_state in default_values:
+        user_data[user_id][current_state.split(':')[1].replace('waiting_for_', '')] = default_values[current_state]
+        await update_report_message(callback.message, user_id)
         await state.clear()
-        await callback_query.answer()
-        return
+    
+    await callback.answer()
 
-    if callback_query.data == "work_yes":
-        completed_works.append(current_work + 1)
+@router.callback_query(F.data == "upload_works")
+async def start_checklist(callback: types.CallbackQuery, state: FSMContext):
+    log_text = "Начал заполнение чек-листа"
+    await log_message(log_text, user=callback.from_user.id)
+    await state.update_data(current_work=0, completed_works=[])
+    checklist_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да", callback_data="work_yes"),
+                InlineKeyboardButton(text="❌ Нет", callback_data="work_no"),
+            ],
+            [
+                InlineKeyboardButton(text="📋 Стандартные значения", callback_data="work_default"),
+            ],
+        ]
+    )
+    try:
+        await callback.message.edit_text(
+            f"❓ {WORKS_LIST[0]}",
+            reply_markup=checklist_keyboard
+        )
+        await state.set_state(UserForm.checklist)
+    except Exception as e:
+        error_text = f"Ошибка при запуске чек-листа: {str(e)}"
+        await log_message(error_text, user=callback.from_user.id)
+        await callback.message.edit_text("Произошла ошибка при запуске чек-листа. Попробуйте еще раз.")
+
+@router.callback_query(F.data == "generate_report")
+async def generate_report_handler(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    await callback.message.edit_text("📝 Создаю документ, подождите немного...")
+    await process_document(callback.message, user_id, callback)
+
+@router.callback_query(F.data.startswith("work_"))
+async def process_work(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    action = callback.data.split("_")[1]
+    data = await state.get_data()
+    current_work = data.get("current_work", 0)
+    completed_works = data.get("completed_works", [])
+
+    if action == "yes":
+        completed_works.append(WORKS_LIST[current_work])
+    elif action == "default":
+        completed_works.extend(WORKS_LIST[current_work:])
+        current_work = len(WORKS_LIST) - 1
+    elif action == "no":
+        pass  # Просто переходим к следующей работе
 
     current_work += 1
+    await state.update_data(current_work=current_work, completed_works=completed_works)
 
     if current_work < len(WORKS_LIST):
-        next_keyboard = InlineKeyboardMarkup(
+        checklist_keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(text="✅ Да", callback_data="work_yes"),
                     InlineKeyboardButton(text="❌ Нет", callback_data="work_no"),
-                ]
+                ],
+                [
+                    InlineKeyboardButton(text="📋 Стандартные значения", callback_data="work_default"),
+                ],
             ]
         )
-
-        await callback_query.message.edit_text(
-            f"❓ {WORKS_LIST[current_work]}", reply_markup=next_keyboard
-        )
-        await state.update_data(
-            current_work=current_work, completed_works=completed_works
+        await callback.message.edit_text(
+            f"❓ {WORKS_LIST[current_work]}",
+            reply_markup=checklist_keyboard
         )
     else:
-        await callback_query.message.edit_text(
-            "📝 Создаю документ, подождите немного...", parse_mode="HTML"
-        )
-
-        if completed_works:
-            works_text = "\n".join(
-                [
-                    f"{i}. {WORKS_LIST[num-1]}"
-                    for i, num in enumerate(completed_works, 1)
-                ]
-            )
-        else:
-            works_text = "Работы не проводились"
-
-        user_data[user_id]["works"] = works_text
-        await process_document(callback_query.message, user_id, callback_query)
-        await callback_query.message.edit_text("✅ Готово!", parse_mode="HTML")
+        user_data[user_id]["works"] = completed_works
+        await update_report_message(callback.message, user_id)
         await state.clear()
 
-    await callback_query.answer()
+    await callback.answer()
 
+@router.callback_query(F.data == "finish_report")
+async def finish_report_handler(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    username = callback.from_user.username or f"{callback.from_user.first_name} (ID: {callback.from_user.id})"
+    
+    # Проверяем наличие всех необходимых данных
+    required_fields = ['photos', 'date', 'address', 'classification', 'materials', 'recommendations', 'defects', 'works']
+    missing_fields = [field for field in required_fields if field not in user_data.get(user_id, {})]
+    
+    if missing_fields:
+        missing_text = ", ".join(missing_fields)
+        await callback.answer(f"❌ Необходимо заполнить: {missing_text}", show_alert=True)
+        return
+    
+    await log_message("Начал создание документа", user=username)
+    await callback.message.edit_text("📝 Создаю документ, подождите немного...")
+    
+    try:
+        await process_document(callback.message, user_id, callback)
+        await log_message("Документ успешно создан", user=username)
+    except Exception as e:
+        error_text = f"Ошибка при создании документа: {str(e)}"
+        await log_message(error_text, user=username)
+        await callback.message.edit_text("❌ Произошла ошибка при создании документа. Попробуйте еще раз.")
 
 async def process_document(message: Message, user_id: int, original_message=None):
     try:
         if user_id not in user_data:
             raise ValueError("Данные пользователя не найдены")
 
-        log_msg = original_message if original_message else message
-        await message.answer("👇 Ваш отчет", parse_mode="HTML")
-
         output_file = await generate_document(user_id, user_data[user_id])
         await message.answer_document(FSInputFile(output_file))
-        log_message(
-            "📄 Готовый отчет отправлен пользователю", original_message or message
-        )
-
+        
         os.remove(output_file)
         del user_photos[user_id]
         del user_data[user_id]
+        
+        await message.answer("✅ Отчет создан! Нажмите 📝 Новый отчет для создания нового отчета", 
+                           reply_markup=main_keyboard)
     except Exception as e:
-        error_msg = f"❌ Произошла ошибка: {str(e)}\n"
-        error_msg += f"Текущие данные: {user_data.get(user_id, 'Нет данных')}"
-        await message.answer(error_msg, parse_mode="HTML")
-        log_message(f"❌ Ошибка при создании документа: {str(e)}", log_msg)
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
