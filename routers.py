@@ -234,22 +234,18 @@ async def skip_handler(callback_query: types.CallbackQuery, state: FSMContext):
                 "🔍 Дефекты пропущены, начинается заполнение чек-листа", callback_query
             )
 
-            # Переходим к чек-листу вместо создания документа
             await message.answer(
                 "📋 Заполняем чек-лист о проведенных работах", parse_mode="HTML"
             )
 
-            # Инициализируем данные для чек-листа
             await state.update_data(current_work=0, completed_works=[])
 
-            # Отправляем первый пункт
             sent_message = await message.answer(
                 f"❓ {WORKS_LIST[0]}",
                 reply_markup=checklist_keyboard,
                 parse_mode="HTML",
             )
 
-            # Сохраняем ID сообщения для последующего редактирования
             await state.update_data(message_id=sent_message.message_id)
             await state.set_state(UserForm.checklist)
 
@@ -264,20 +260,16 @@ async def defects_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user_data[user_id]["defects"] = message.text
 
-    # Вместо создания документа переходим к чек-листу
     await message.reply(
         "📋 Заполняем чек-лист о проведенных работах", parse_mode="HTML"
     )
 
-    # Инициализируем данные для чек-листа
     await state.update_data(current_work=0, completed_works=[])
 
-    # Отправляем первый пункт
     sent_message = await message.answer(
         f"❓ {WORKS_LIST[0]}", reply_markup=checklist_keyboard, parse_mode="HTML"
     )
 
-    # Сохраняем ID сообщения для последующего редактирования
     await state.update_data(message_id=sent_message.message_id)
     await state.set_state(UserForm.checklist)
     log_message("📋 Начато заполнение чек-листа работ", message)
@@ -292,9 +284,7 @@ async def process_work_step(callback_query: types.CallbackQuery, state: FSMConte
     completed_works = current_data.get("completed_works", [])
 
     if callback_query.data == "work_default":
-        # Если выбраны стандартные значения, добавляем все работы
         completed_works = list(range(1, len(WORKS_LIST) + 1))
-        # Сразу переходим к созданию документа
         await callback_query.message.edit_text(
             "📝 Создаю документ, подождите немного...", parse_mode="HTML"
         )
@@ -307,15 +297,12 @@ async def process_work_step(callback_query: types.CallbackQuery, state: FSMConte
         await callback_query.answer()
         return
 
-    # Если пользователь выбрал "Да", добавляем работу в список
     if callback_query.data == "work_yes":
         completed_works.append(current_work + 1)
 
     current_work += 1
 
-    # Если есть еще работы, показываем следующую
     if current_work < len(WORKS_LIST):
-        # Создаем клавиатуру без кнопки стандартных значений
         next_keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -332,7 +319,6 @@ async def process_work_step(callback_query: types.CallbackQuery, state: FSMConte
             current_work=current_work, completed_works=completed_works
         )
     else:
-        # Остальной код без изменений
         await callback_query.message.edit_text(
             "📝 Создаю документ, подождите немного...", parse_mode="HTML"
         )
