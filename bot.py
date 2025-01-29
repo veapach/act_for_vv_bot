@@ -36,6 +36,8 @@ async def start_handler(message: Message):
         "Привет! Отправь мне несколько фото, и я вставлю их в отчет. Когда закончишь, нажми кнопку <b>Готово</b>.",
         parse_mode="HTML",
     )
+    username = message.from_user.username or "неизвестный"
+    print(f"[LOG] - Запрос от нового пользователя! @{username}")
 
 
 @router.message(F.photo)
@@ -56,6 +58,8 @@ async def photo_handler(message: Message):
             reply_markup=keyboard,
             parse_mode="HTML",
         )
+        username = message.from_user.username or "неизвестный"
+        print(f"[LOG] - Пользователь отправил фото @{username}")
 
 
 @router.message(F.text == "Готово ✅")
@@ -71,6 +75,8 @@ async def done_handler(message: Message):
     await message.reply(
         "📅 Пожалуйста, введите дату в формате ДД.ММ.ГГГГ:", parse_mode="HTML"
     )
+    username = message.from_user.username or "неизвестный"
+    print(f"[LOG] - Фото от пользователя сохранены @{username}")
 
     # Инициализируем данные пользователя
     user_data[user_id] = {"photos": user_photos[user_id]}
@@ -88,6 +94,8 @@ async def date_handler(message: Message):
 
     user_data[user_id]["date"] = message.text
     await message.reply("📍 Пожалуйста, введите адрес:", parse_mode="HTML")
+    username = message.from_user.username or "неизвестный"
+    print(f"[LOG] - Дата от пользователя сохранена @{username}")
 
 
 @router.message(F.text)
@@ -99,6 +107,10 @@ async def address_handler(message: Message):
 
     user_data[user_id]["address"] = message.text
     await message.reply("📝 Создаю документ, подождите немного...", parse_mode="HTML")
+    username = message.from_user.username or "неизвестный"
+    print(
+        f"[LOG] - Адрес от пользователя сохранен, началась обработка документа @{username}"
+    )
 
     try:
         # Генерация документа Word
@@ -106,6 +118,7 @@ async def address_handler(message: Message):
 
         # Отправка документа пользователю
         await message.answer_document(FSInputFile(output_file))
+        print(f"[LOG] - Готовый отчет отправлен пользователю @{username}")
 
         # Очистка временных данных
         os.remove(output_file)
@@ -135,18 +148,23 @@ async def generate_document(user_id, user_info):
 
                         # Изменение размера
                         width_cm = 18
+                        height_cm = 13.5
                         dpi = 96
                         width_px = int((width_cm / 2.54) * dpi)
-                        image.thumbnail((width_px, width_px))
+                        height_px = int((height_cm / 2.54) * dpi)
+                        image.thumbnail((width_px, height_px))
 
                         # Сохранение временного изображения
-                        temp_image_path = f"temp_{user_id}.jpg"
+                        temp_image_path = f"temp_{user_id}_{photo_id}.jpg"
                         image.save(temp_image_path)
 
                         # Вставка изображения
-                        paragraph = cell.paragraphs[0]
+                        paragraph = cell.add_paragraph()
+                        paragraph.alignment = 1  # Центрирование параграфа
                         run = paragraph.add_run()
-                        run.add_picture(temp_image_path, width=Cm(18))
+                        run.add_picture(
+                            temp_image_path, width=Cm(width_cm), height=Cm(height_cm)
+                        )
 
                         os.remove(temp_image_path)
 
@@ -161,6 +179,7 @@ async def generate_document(user_id, user_info):
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
+    print("[LOG] - Бот запущен успешно")
     await dp.start_polling(bot, parse_mode="HTML")
 
 
