@@ -3,7 +3,14 @@ import os
 from datetime import datetime
 
 load_dotenv()
-API_TOKEN = os.getenv("API_TOKEN")
+ENVIRONMENT = os.getenv("ENV", "dev").lower()
+API_TOKEN = (
+    os.getenv("PROD_API_TOKEN") if ENVIRONMENT == "prod" else os.getenv("DEV_API_TOKEN")
+)
+if not API_TOKEN:
+    raise ValueError(
+        f"API token for environment '{ENVIRONMENT}' not found in .env file"
+    )
 
 user_photos = {}
 user_data = {}
