@@ -41,6 +41,31 @@ async def generate_document(user_id, user_info):
 
                         os.remove(temp_image_path)
 
+                if "Печь [классификация]" in cell.text:
+                    classification = user_info.get("classification", "")
+                    if classification:
+                        cell.text = cell.text.replace(
+                            "Печь [классификация]", classification
+                        )
+                    else:
+                        cell.text = cell.text.replace("[классификация]", "")
+
+                if "[работы]" in cell.text:
+                    works = user_info.get("works", "Работы не проводились")
+                    cell.text = cell.text.replace("[работы]", works)
+
+                if "[материалы]" in cell.text:
+                    materials = user_info.get("materials", "")
+                    cell.text = cell.text.replace("[материалы]", materials)
+
+                if "[рекомендации]" in cell.text:
+                    recommendations = user_info.get("recommendations", "")
+                    cell.text = cell.text.replace("[рекомендации]", recommendations)
+
+                if "[дефекты]" in cell.text:
+                    defects = user_info.get("defects", "")
+                    cell.text = cell.text.replace("[дефекты]", defects)
+
     date = user_info["date"]
     address = user_info["address"]
     output_path = f"Отчет о проведенном ТО-{date}  {address}.docx"
