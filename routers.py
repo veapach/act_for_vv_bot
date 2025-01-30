@@ -40,15 +40,19 @@ report_keyboard = ReplyKeyboardMarkup(
 )
 
 WORKS_LIST = [
-    "Ежемесячный технический осмотр оборудования на предмет его работоспособности",
-    "Диагностика неисправного оборудования на предмет проведения его ремонта",
-    "Проверка крепления термостатов, сигнальной арматуры, дверей и облицовки",
-    "Проверка надежности крепления заземления и отсутствия механических повреждений проводов",
-    "Проверка работы программных устройств",
-    "Проверка нагревательных элементов, соленоидных клапанов",
-    "Проверка состояния электроаппаратуры, при необходимости затяжка электроконтактных соединений, замена сгоревших плавких вставок",
-    "Контроль силы тока в каждой из фаз и межфазных напряжений",
+    "Ежемесячный технический осмотр оборудования на предмет его работоспособности.",
+    "Технический осмотр оборудования на предмет его работоспособности.",
+    "Диагностика неисправного оборудования на предмет проведения его ремонта.",
+    "Диагностика оборудования",
+    "Проверка крепления термостатов, сигнальной арматуры, дверей и облицовки.",
+    "Проверка надежности крепления заземления и отсутствия механических повреждений проводов.",
+    "Проверка работы программных устройств.",
+    "Проверка нагревательных элементов.",
+    "Проверка соленоидных клапанов.",
+    "Проверка состояния электроаппаратуры, при необходимости затяжка электроконтактных соединений, замена сгоревших плавких вставок.",
+    "Контроль силы тока в каждой из фаз и межфазных напряжений.",
     "Проверка настройки микропроцессоров",
+    "Контрольная проверка агрегата в рабочем режиме.",
 ]
 
 
@@ -166,7 +170,6 @@ async def cancel_report_handler(message: Message):
 async def done_button_handler(message: Message):
     user_id = message.from_user.id
 
-    # Проверяем наличие всех необходимых данных
     required_fields = [
         "photos",
         "date",
@@ -199,7 +202,6 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
     await log_message(log_text, user=username)
 
     if action in user_data.get(user.id, {}):
-        # Если данные уже существуют, очищаем их
         if action == "photos":
             user_photos[user.id] = []
         else:
@@ -234,7 +236,6 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
     )
 
     if action == "works":
-        # Сразу запускаем чек-лист вместо простого сообщения
         await start_checklist(callback, state)
         return
 
@@ -283,11 +284,9 @@ async def photo_handler(message: Message, state: FSMContext):
 
     file_id = None
     if message.photo:
-        # Для обычных фото
         highest_quality_photo = max(message.photo, key=lambda p: p.file_size)
         file_id = highest_quality_photo.file_id
     elif message.document and message.document.mime_type.startswith("image/"):
-        # Для документов-изображений (включая iPhone HEIC)
         file_id = message.document.file_id
     else:
         await message.reply("❌ Пожалуйста, отправьте изображение")
@@ -296,7 +295,6 @@ async def photo_handler(message: Message, state: FSMContext):
     user_photos[user_id].append(file_id)
     user_data[user_id]["photos"] = user_photos[user_id]
 
-    # Проверяем, было ли уже отправлено сообщение
     media_group_id = message.media_group_id
     if not media_group_id or len(user_photos[user_id]) == 1:
         done_keyboard = InlineKeyboardMarkup(
@@ -338,7 +336,6 @@ async def date_handler(message: Message, state: FSMContext):
         or f"{message.from_user.first_name} (ID: {message.from_user.id})"
     )
 
-    # Проверка формата даты
     import re
 
     if not re.match(r"^\d{2}\.\d{2}\.\d{4}$", message.text):
@@ -479,7 +476,7 @@ async def process_work(callback: types.CallbackQuery, state: FSMContext):
         completed_works.extend(WORKS_LIST[current_work:])
         current_work = len(WORKS_LIST) - 1
     elif action == "no":
-        pass  # Просто переходим к следующей работе
+        pass
 
     current_work += 1
     await state.update_data(current_work=current_work, completed_works=completed_works)
@@ -517,7 +514,6 @@ async def finish_report_handler(callback: types.CallbackQuery):
         or f"{callback.from_user.first_name} (ID: {callback.from_user.id})"
     )
 
-    # Проверяем наличие всех необходимых данных
     required_fields = [
         "photos",
         "date",

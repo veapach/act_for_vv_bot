@@ -9,10 +9,8 @@ from bot_instance import bot
 async def generate_document(user_id, user_info):
     doc = Document("template.docx")
 
-    # Создаем копию данных, чтобы не изменять оригинальные
     user_info = user_info.copy()
 
-    # Преобразуем список работ в строку, если это список
     if isinstance(user_info.get("works", ""), list):
         user_info["works"] = "\n• " + "\n• ".join(user_info["works"])
 
