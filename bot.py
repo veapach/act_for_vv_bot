@@ -3,7 +3,6 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from bot_instance import bot
 from routers import router
 import asyncio
-import signal
 from datetime import datetime
 
 dp = Dispatcher(storage=MemoryStorage())

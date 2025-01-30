@@ -11,10 +11,10 @@ async def generate_document(user_id, user_info):
 
     # Создаем копию данных, чтобы не изменять оригинальные
     user_info = user_info.copy()
-    
+
     # Преобразуем список работ в строку, если это список
-    if isinstance(user_info.get('works', ''), list):
-        user_info['works'] = "\n• " + "\n• ".join(user_info['works'])
+    if isinstance(user_info.get("works", ""), list):
+        user_info["works"] = "\n• " + "\n• ".join(user_info["works"])
 
     for table in doc.tables:
         for row in table.rows:
@@ -73,8 +73,12 @@ async def generate_document(user_id, user_info):
                     defects = user_info.get("defects", "")
                     cell.text = cell.text.replace("[дефекты]", defects)
 
+                if "[доп_работы]" in cell.text:
+                    additional_works = user_info.get("additional_works", "")
+                    cell.text = cell.text.replace("[доп_работы]", additional_works)
+
     date = user_info["date"]
     address = user_info["address"]
-    output_path = f"Отчет о проведенном ТО-{date}  {address}.docx"
+    output_path = f"Акт выполненных работ {date}  {address}.docx"
     doc.save(output_path)
     return output_path
