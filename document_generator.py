@@ -21,6 +21,10 @@ async def generate_document(user_id, user_info):
                     cell.text = cell.text.replace("[дата]", user_info["date"])
                 if "[адрес]" in cell.text:
                     cell.text = cell.text.replace("[адрес]", user_info["address"])
+                if "[классификация]" in cell.text:
+                    cell.text = cell.text.replace(
+                        "[классификация]", user_info["classification"]
+                    )
                 if "[вставка]" in cell.text:
                     cell.text = ""
                     for photo_id in user_info["photos"]:

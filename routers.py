@@ -21,6 +21,7 @@ class UserForm(StatesGroup):
     waiting_for_date = State()
     waiting_for_address = State()
     waiting_for_classification = State()
+    waiting_for_classification_input = State()
     waiting_for_materials = State()
     waiting_for_recommendations = State()
     waiting_for_defects = State()
@@ -38,6 +39,15 @@ main_keyboard = ReplyKeyboardMarkup(
 report_keyboard = ReplyKeyboardMarkup(
     keyboard=[[done_button, cancel_button]], resize_keyboard=True
 )
+
+
+async def delete_and_update(message: Message, user_id: int):
+    try:
+        await message.delete()
+    except Exception as e:
+        print(f"Ошибка при удалении сообщения: {e}")
+    await update_report_message(message, user_id)
+
 
 WORKS_LIST = [
     "Ежемесячный технический осмотр оборудования на предмет его работоспособности.",
@@ -211,7 +221,7 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
         "photos": "📸 Отправьте фотографии для отчета (можно отправить несколько). После завершения нажмите кнопку Готово",
         "date": "📅 Введите дату в формате ДД.ММ.ГГГГ",
         "address": "📍 Введите адрес",
-        "classification": "🏷️ Введите классификацию или нажмите Пропуск",
+        "classification": "🏷️ Выберите классификацию",
         "materials": "🛠️ Введите материалы или нажмите Пропуск",
         "recommendations": "💡 Введите рекомендации или нажмите Пропуск",
         "defects": "🔍 Введите выявленные дефекты или нажмите Пропуск",
@@ -241,6 +251,8 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
 
     await state.set_state(states_map[action])
 
+    reply_markup = None
+
     if action == "photos":
         done_keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -248,23 +260,103 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
             ]
         )
         reply_markup = done_keyboard
-    else:
-        reply_markup = (
-            skip_keyboard
-            if action
-            in [
-                "classification",
-                "materials",
-                "recommendations",
-                "defects",
-                "additional_works",
+    elif action == "classification":
+        classification_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="ПНР", callback_data="classification_pnr")],
+                [
+                    InlineKeyboardButton(
+                        text="Аварийный вызов", callback_data="classification_emergency"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="ТО", callback_data="classification_maintenance"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="Другое", callback_data="classification_other"
+                    )
+                ],
             ]
-            else None
         )
+        reply_markup = classification_keyboard
+    elif action in ["materials", "recommendations", "defects", "additional_works"]:
+        reply_markup = skip_keyboard
 
     await callback.message.edit_text(
         messages_map[action], reply_markup=reply_markup, parse_mode="HTML"
     )
+
+
+@router.callback_query(F.data.startswith("classification_"))
+async def handle_classification_selection(
+    callback: types.CallbackQuery, state: FSMContext
+):
+    user_id = callback.from_user.id
+    action = callback.data.split("_", 1)[1]
+
+    if action == "other":
+        await state.set_state(UserForm.waiting_for_classification_input)
+        cancel_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="❌ Отмена", callback_data="classification_cancel_input"
+                    )
+                ]
+            ]
+        )
+        await callback.message.edit_text(
+            "Введите свою классификацию:", reply_markup=cancel_keyboard
+        )
+    else:
+        classification_text = {
+            "pnr": "ПНР",
+            "emergency": "Аварийный вызов",
+            "maintenance": "ТО",
+        }.get(action, action)
+
+        user_data[user_id]["classification"] = classification_text
+        await delete_and_update(callback.message, user_id)
+        await state.clear()
+        await callback.answer()
+
+
+@router.callback_query(F.data == "classification_cancel_input")
+async def handle_classification_cancel(
+    callback: types.CallbackQuery, state: FSMContext
+):
+    await state.clear()
+    classification_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="ПНР", callback_data="classification_pnr")],
+            [
+                InlineKeyboardButton(
+                    text="Аварийный вызов", callback_data="classification_emergency"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="ТО", callback_data="classification_maintenance"
+                )
+            ],
+            [InlineKeyboardButton(text="Другое", callback_data="classification_other")],
+        ]
+    )
+    await callback.message.edit_text(
+        "🏷️ Выберите классификацию:", reply_markup=classification_keyboard
+    )
+    await callback.answer()
+
+
+@router.message(UserForm.waiting_for_classification_input)
+async def handle_custom_classification_input(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user_data[user_id]["classification"] = message.text
+    await delete_and_update(message, user_id)
+    await state.clear()
 
 
 @router.message(UserForm.waiting_for_photos)
@@ -364,19 +456,11 @@ async def address_handler(message: Message, state: FSMContext):
     await state.clear()
 
 
-@router.message(UserForm.waiting_for_classification)
-async def classification_handler(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    user_data[user_id]["classification"] = message.text
-    await update_report_message(message, user_id)
-    await state.clear()
-
-
 @router.message(UserForm.waiting_for_materials)
 async def materials_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user_data[user_id]["materials"] = message.text
-    await update_report_message(message, user_id)
+    await delete_and_update(message, user_id)
     await state.clear()
 
 
@@ -384,7 +468,7 @@ async def materials_handler(message: Message, state: FSMContext):
 async def recommendations_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user_data[user_id]["recommendations"] = message.text
-    await update_report_message(message, user_id)
+    await delete_and_update(message, user_id)
     await state.clear()
 
 
@@ -392,7 +476,7 @@ async def recommendations_handler(message: Message, state: FSMContext):
 async def defects_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user_data[user_id]["defects"] = message.text
-    await update_report_message(message, user_id)
+    await delete_and_update(message, user_id)
     await state.clear()
 
 
@@ -402,7 +486,7 @@ async def skip_handler(callback: types.CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
 
     default_values = {
-        "UserForm:waiting_for_classification": "Печь",
+        "UserForm:waiting_for_classification": "",
         "UserForm:waiting_for_materials": "",
         "UserForm:waiting_for_recommendations": "",
         "UserForm:waiting_for_defects": "",
@@ -410,10 +494,9 @@ async def skip_handler(callback: types.CallbackQuery, state: FSMContext):
     }
 
     if current_state in default_values:
-        user_data[user_id][current_state.split(":")[1].replace("waiting_for_", "")] = (
-            default_values[current_state]
-        )
-        await update_report_message(callback.message, user_id)
+        field_name = current_state.split(":")[1].replace("waiting_for_", "")
+        user_data[user_id][field_name] = default_values[current_state]
+        await delete_and_update(callback.message, user_id)
         await state.clear()
 
     await callback.answer()
@@ -500,7 +583,7 @@ async def process_work(callback: types.CallbackQuery, state: FSMContext):
         )
     else:
         user_data[user_id]["works"] = completed_works
-        await update_report_message(callback.message, user_id)
+        await delete_and_update(callback.message, user_id)
         await state.clear()
 
     await callback.answer()
@@ -552,12 +635,8 @@ async def finish_report_handler(callback: types.CallbackQuery):
 @router.message(UserForm.waiting_for_additional_works)
 async def additional_works_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    username = (
-        message.from_user.username or f"{message.from_user.first_name} (ID: {user_id})"
-    )
     user_data[user_id]["additional_works"] = message.text
-    await log_message("Добавил дополнительные работы", user=username)
-    await update_report_message(message, user_id)
+    await delete_and_update(message, user_id)
     await state.clear()
 
 
@@ -582,7 +661,7 @@ async def process_document(message: Message, user_id: int, original_message=None
         del user_data[user_id]
 
         await message.answer(
-            "✅ Отчет создан! Нажмите 📝 Новый отчет для создания нового отчета",
+            "✅ Отчет создан!\nНажмите 📝 Новый отчет для создания нового отчета",
             reply_markup=main_keyboard,
         )
     except Exception as e:
