@@ -181,7 +181,6 @@ async def done_button_handler(message: Message):
     user_id = message.from_user.id
 
     required_fields = [
-        "photos",
         "date",
         "address",
         "classification",
@@ -410,9 +409,7 @@ async def photos_done_handler(callback: types.CallbackQuery, state: FSMContext):
         or f"{callback.from_user.first_name} (ID: {callback.from_user.id})"
     )
 
-    if not user_photos.get(user_id):
-        await callback.message.edit_text("❌ Необходимо добавить хотя бы одно фото")
-        return
+    user_data[user_id]["photos"] = user_photos.get(user_id, [])
 
     await log_message("Завершил загрузку фото", user=username)
     await update_report_message(callback.message, user_id)
@@ -651,7 +648,10 @@ async def process_document(message: Message, user_id: int, original_message=None
         )
         await log_message("Начал создание документа", user=username)
 
-        output_file = await generate_document(user_id, user_data[user_id])
+        user_info = user_data[user_id]
+        photos = user_info.get("photos", [])
+
+        output_file = await generate_document(user_id, user_info)
         await message.answer_document(FSInputFile(output_file))
 
         await log_message("Документ успешно отправлен", user=username)
