@@ -11,6 +11,7 @@ if not API_TOKEN:
     raise ValueError(
         f"API token for environment '{ENVIRONMENT}' not found in .env file"
     )
+DB_PATH = os.getenv("DB_PATH", "users.db")
 
 user_photos = {}
 user_data = {}

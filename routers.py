@@ -11,12 +11,15 @@ from aiogram.types import (
 from config import user_photos, user_data, log_message
 from document_generator import generate_document
 from aiogram.types import FSInputFile
+from database import Database
 import os
 
 router = Router()
-
+db = Database()
 
 class UserForm(StatesGroup):
+    waiting_for_last_name = State()
+    waiting_for_first_name = State()
     waiting_for_photos = State()
     waiting_for_date = State()
     waiting_for_address = State()
@@ -137,22 +140,63 @@ async def update_report_message(message: Message, user_id: int):
 
 
 @router.message(F.text == "/start")
-async def start_handler(message: Message):
+async def start_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    username = (
-        message.from_user.username or f"{message.from_user.first_name} (ID: {user_id})"
-    )
-    await log_message("Новый пользователь", user=username)
+    await state.set_state(UserForm.waiting_for_last_name)
+    await message.reply("Пожалуйста, введите вашу фамилию:")
+
+
+@router.message(UserForm.waiting_for_last_name)
+async def last_name_handler(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    last_name = message.text.strip()
+    
+    if not last_name.isalpha():
+        await message.reply("❌ Пожалуйста, введите корректную фамилию.")
+        return
+    
+    await state.update_data(last_name=last_name)
+    await state.set_state(UserForm.waiting_for_first_name)
+    await message.reply("Пожалуйста, введите ваше имя:")
+
+
+@router.message(UserForm.waiting_for_first_name)
+async def first_name_handler(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    first_name = message.text.strip()
+    
+    if not first_name.isalpha():
+        await message.reply("❌ Пожалуйста, введите корректное имя.")
+        return
+    
+    user_data_state = await state.get_data()
+    last_name = user_data_state.get("last_name")
+    
+    # Сохранение данных в базу данных
+    db.add_user(user_id, first_name=first_name, last_name=last_name)
+    
+    await log_message("Новый пользователь", user=f"{first_name} {last_name} (ID: {user_id})")
+    
     await message.reply(
-        "Привет! Нажми кнопку 📝 Новый отчет, чтобы начать.",
+        f"Привет, {first_name} {last_name}! Нажми кнопку 📝 Новый отчет, чтобы начать.",
         reply_markup=main_keyboard,
         parse_mode="HTML",
     )
+    
+    await state.clear()
 
 
 @router.message(F.text == "📝 Новый отчет")
 async def new_report_handler(message: Message):
     user_id = message.from_user.id
+
+    # Проверка наличия пользователя в базе данных
+    user_record = db.get_user(user_id)
+    if not user_record:
+        await message.reply("❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации.")
+        await UserForm.waiting_for_last_name.set()
+        return
+
     username = (
         message.from_user.username or f"{message.from_user.first_name} (ID: {user_id})"
     )
@@ -177,8 +221,15 @@ async def cancel_report_handler(message: Message):
 
 
 @router.message(F.text == "✅ Готово")
-async def done_button_handler(message: Message):
+async def done_button_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
+
+    # Проверка наличия пользователя в базе данных
+    user_record = db.get_user(user_id)
+    if not user_record:
+        await message.reply("❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации.")
+        await UserForm.waiting_for_last_name.set()
+        return
 
     required_fields = [
         "date",
@@ -422,7 +473,7 @@ async def date_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = (
         message.from_user.username
-        or f"{message.from_user.first_name} (ID: {message.from_user.id})"
+        or f"{message.from_user.first_name} (ID: {user_id})"
     )
 
     import re
@@ -651,18 +702,29 @@ async def process_document(message: Message, user_id: int, original_message=None
         user_info = user_data[user_id]
         photos = user_info.get("photos", [])
 
+        # Проверка наличия пользователя в базе данных перед генерацией документа
+        user_record = db.get_user(user_id)
+        if not user_record:
+            await message.answer("❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации.")
+            await UserForm.waiting_for_last_name.set()
+            return
+
         output_file = await generate_document(user_id, user_info)
         await message.answer_document(FSInputFile(output_file))
 
         await log_message("Документ успешно отправлен", user=username)
 
         os.remove(output_file)
-        del user_photos[user_id]
-        del user_data[user_id]
+        if user_id in user_photos:
+            del user_photos[user_id]
+        if user_id in user_data:
+            del user_data[user_id]
 
         await message.answer(
             "✅ Отчет создан!\nНажмите 📝 Новый отчет для создания нового отчета",
             reply_markup=main_keyboard,
         )
+    except ValueError as ve:
+        await message.answer(str(ve))
     except Exception as e:
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
