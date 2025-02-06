@@ -184,7 +184,6 @@ async def first_name_handler(message: Message, state: FSMContext):
     user_data_state = await state.get_data()
     last_name = user_data_state.get("last_name")
 
-    # Сохранение данных в базу данных
     db.add_user(user_id, first_name=first_name, last_name=last_name)
 
     await log_message(
@@ -204,7 +203,6 @@ async def first_name_handler(message: Message, state: FSMContext):
 async def new_report_handler(message: Message):
     user_id = message.from_user.id
 
-    # Проверка наличия пользователя в базе данных
     user_record = db.get_user(user_id)
     if not user_record:
         await message.reply(
@@ -240,7 +238,6 @@ async def cancel_report_handler(message: Message):
 async def done_button_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
 
-    # Проверка наличия пользователя в базе данных
     user_record = db.get_user(user_id)
     if not user_record:
         await message.reply(
@@ -719,7 +716,6 @@ async def process_document(message: Message, user_id: int, original_message=None
         user_info = user_data[user_id]
         photos = user_info.get("photos", [])
 
-        # Проверка наличия пользователя в базе данных перед генерацией документа
         user_record = db.get_user(user_id)
         if not user_record:
             await message.answer(
