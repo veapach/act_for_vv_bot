@@ -265,7 +265,7 @@ async def done_button_handler(message: Message, state: FSMContext):
         return
 
     await message.answer("📝 Создаю документ, подождите немного...")
-    await process_document(message, user_id)
+    await process_document(message, state, user_id)
 
 
 @router.callback_query(F.data.startswith("upload_"))
