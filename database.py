@@ -8,7 +8,7 @@ class Database:
         self.conn: Connection = sqlite3.connect(DB_PATH)
         self.create_user_table()
 
-    async def create_user_table(self):
+    def create_user_table(self):
         with self.conn:
             self.conn.execute(
                 """
@@ -19,7 +19,7 @@ class Database:
                 )
             """
             )
-            await log_message("Таблица users создана или уже существует")
+            print("Таблица users создана или уже существует")
 
     async def add_user(self, user_id: int, first_name: str, last_name: str):
         with self.conn:

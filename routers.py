@@ -200,7 +200,7 @@ async def first_name_handler(message: Message, state: FSMContext):
 
 
 @router.message(F.text == "📝 Новый отчет")
-async def new_report_handler(message: Message):
+async def new_report_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
 
     user_record = await db.get_user(user_id)
@@ -208,7 +208,7 @@ async def new_report_handler(message: Message):
         await message.reply(
             "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
         )
-        await UserForm.waiting_for_last_name.set()
+        await state.set_state(UserForm.waiting_for_last_name)
         return
 
     username = (
@@ -243,7 +243,7 @@ async def done_button_handler(message: Message, state: FSMContext):
         await message.reply(
             "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
         )
-        await UserForm.waiting_for_last_name.set()
+        await state.set_state(UserForm.waiting_for_last_name)
         return
 
     required_fields = [
@@ -721,7 +721,7 @@ async def process_document(message: Message, user_id: int, original_message=None
             await message.answer(
                 "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
             )
-            await UserForm.waiting_for_last_name.set()
+            await state.set_state(UserForm.waiting_for_last_name)
             return
 
         output_file = await generate_document(user_id, user_info)
