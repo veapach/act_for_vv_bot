@@ -16,8 +16,7 @@ DB_PATH = os.getenv("DB_PATH", "users.db")
 user_photos = {}
 user_data = {}
 
-
-async def log_message(text, user=None):
+def log_message(text, user=None):
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user_info = f"[USER: {user}] " if user else ""
     print(f"🕒 [{current_time}] 📋 {user_info}[LOG] - {text}")
