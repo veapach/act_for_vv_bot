@@ -4,15 +4,14 @@ from PIL import Image
 from io import BytesIO
 import os
 from bot_instance import bot
-from database import Database  # Импортируем класс Database
+from database import Database
 
-db = Database()  # Создаём экземпляр базы данных
+db = Database()
 
 
 async def generate_document(user_id, user_info):
     doc = Document("template.docx")
 
-    # Получаем имя и фамилию из базы данных
     user_record = db.get_user(user_id)
     if user_record:
         first_name, last_name = user_record
@@ -90,7 +89,7 @@ async def generate_document(user_id, user_info):
                     additional_works = user_info.get("additional_works", "")
                     cell.text = cell.text.replace("[доп_работы]", additional_works)
 
-                if "[фио]" in cell.text:  # Добавляем замену [фио]
+                if "[фио]" in cell.text:
                     cell.text = cell.text.replace("[фио]", full_name)
 
     date = user_info["date"]
