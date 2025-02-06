@@ -146,11 +146,13 @@ async def start_handler(message: Message, state: FSMContext):
 
     user = db.get_user(user_id)
     if user:
+        first_name, last_name = user
         await message.reply(
-            f"С возвращением, {user.first_name} {user.last_name}! Нажми кнопку 📝 Новый отчет, чтобы начать.",
+            f"С возвращением, {first_name} {last_name}! Нажми кнопку 📝 Новый отчет, чтобы начать.",
             reply_markup=main_keyboard,
             parse_mode="HTML",
         )
+        return
 
     await state.set_state(UserForm.waiting_for_last_name)
     await message.reply("Пожалуйста, введите вашу фамилию:")
