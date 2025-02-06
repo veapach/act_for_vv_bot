@@ -144,7 +144,7 @@ async def update_report_message(message: Message, user_id: int):
 async def start_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
 
-    user = db.get_user(user_id)
+    user = await db.get_user(user_id)
     if user:
         first_name, last_name = user
         await message.reply(
@@ -184,7 +184,7 @@ async def first_name_handler(message: Message, state: FSMContext):
     user_data_state = await state.get_data()
     last_name = user_data_state.get("last_name")
 
-    db.add_user(user_id, first_name=first_name, last_name=last_name)
+    await db.add_user(user_id, first_name=first_name, last_name=last_name)
 
     await log_message(
         "Новый пользователь", user=f"{first_name} {last_name} (ID: {user_id})"
@@ -203,7 +203,7 @@ async def first_name_handler(message: Message, state: FSMContext):
 async def new_report_handler(message: Message):
     user_id = message.from_user.id
 
-    user_record = db.get_user(user_id)
+    user_record = await db.get_user(user_id)
     if not user_record:
         await message.reply(
             "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
@@ -238,7 +238,7 @@ async def cancel_report_handler(message: Message):
 async def done_button_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
 
-    user_record = db.get_user(user_id)
+    user_record = await db.get_user(user_id)
     if not user_record:
         await message.reply(
             "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
@@ -716,7 +716,7 @@ async def process_document(message: Message, user_id: int, original_message=None
         user_info = user_data[user_id]
         photos = user_info.get("photos", [])
 
-        user_record = db.get_user(user_id)
+        user_record = await db.get_user(user_id)
         if not user_record:
             await message.answer(
                 "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
