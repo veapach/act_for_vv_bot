@@ -17,6 +17,7 @@ import os
 router = Router()
 db = Database()
 
+
 class UserForm(StatesGroup):
     waiting_for_last_name = State()
     waiting_for_first_name = State()
@@ -142,6 +143,15 @@ async def update_report_message(message: Message, user_id: int):
 @router.message(F.text == "/start")
 async def start_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
+
+    user = db.get_user(user_id)
+    if user:
+        await message.reply(
+            f"С возвращением, {user.first_name} {user.last_name}! Нажми кнопку 📝 Новый отчет, чтобы начать.",
+            reply_markup=main_keyboard,
+            parse_mode="HTML",
+        )
+
     await state.set_state(UserForm.waiting_for_last_name)
     await message.reply("Пожалуйста, введите вашу фамилию:")
 
@@ -150,11 +160,11 @@ async def start_handler(message: Message, state: FSMContext):
 async def last_name_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     last_name = message.text.strip()
-    
+
     if not last_name.isalpha():
         await message.reply("❌ Пожалуйста, введите корректную фамилию.")
         return
-    
+
     await state.update_data(last_name=last_name)
     await state.set_state(UserForm.waiting_for_first_name)
     await message.reply("Пожалуйста, введите ваше имя:")
@@ -164,25 +174,27 @@ async def last_name_handler(message: Message, state: FSMContext):
 async def first_name_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     first_name = message.text.strip()
-    
+
     if not first_name.isalpha():
         await message.reply("❌ Пожалуйста, введите корректное имя.")
         return
-    
+
     user_data_state = await state.get_data()
     last_name = user_data_state.get("last_name")
-    
+
     # Сохранение данных в базу данных
     db.add_user(user_id, first_name=first_name, last_name=last_name)
-    
-    await log_message("Новый пользователь", user=f"{first_name} {last_name} (ID: {user_id})")
-    
+
+    await log_message(
+        "Новый пользователь", user=f"{first_name} {last_name} (ID: {user_id})"
+    )
+
     await message.reply(
         f"Привет, {first_name} {last_name}! Нажми кнопку 📝 Новый отчет, чтобы начать.",
         reply_markup=main_keyboard,
         parse_mode="HTML",
     )
-    
+
     await state.clear()
 
 
@@ -193,7 +205,9 @@ async def new_report_handler(message: Message):
     # Проверка наличия пользователя в базе данных
     user_record = db.get_user(user_id)
     if not user_record:
-        await message.reply("❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации.")
+        await message.reply(
+            "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
+        )
         await UserForm.waiting_for_last_name.set()
         return
 
@@ -227,7 +241,9 @@ async def done_button_handler(message: Message, state: FSMContext):
     # Проверка наличия пользователя в базе данных
     user_record = db.get_user(user_id)
     if not user_record:
-        await message.reply("❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации.")
+        await message.reply(
+            "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
+        )
         await UserForm.waiting_for_last_name.set()
         return
 
@@ -472,8 +488,7 @@ async def photos_done_handler(callback: types.CallbackQuery, state: FSMContext):
 async def date_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = (
-        message.from_user.username
-        or f"{message.from_user.first_name} (ID: {user_id})"
+        message.from_user.username or f"{message.from_user.first_name} (ID: {user_id})"
     )
 
     import re
@@ -705,7 +720,9 @@ async def process_document(message: Message, user_id: int, original_message=None
         # Проверка наличия пользователя в базе данных перед генерацией документа
         user_record = db.get_user(user_id)
         if not user_record:
-            await message.answer("❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации.")
+            await message.answer(
+                "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
+            )
             await UserForm.waiting_for_last_name.set()
             return
 
