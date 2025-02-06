@@ -702,7 +702,9 @@ async def additional_works_handler(message: Message, state: FSMContext):
     await state.clear()
 
 
-async def process_document(message: Message, user_id: int, original_message=None):
+async def process_document(
+    message: Message, state: FSMContext, user_id: int, original_message=None
+):
     try:
         if user_id not in user_data:
             raise ValueError("Данные пользователя не найдены")

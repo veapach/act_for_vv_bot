@@ -12,7 +12,7 @@ db = Database()
 async def generate_document(user_id, user_info):
     doc = Document("template.docx")
 
-    user_record = db.get_user(user_id)
+    user_record = await db.get_user(user_id)
     if user_record:
         first_name, last_name = user_record
         full_name = f"{last_name} {first_name}"
