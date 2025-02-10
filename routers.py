@@ -1,3 +1,4 @@
+import re
 from aiogram import Router, F, types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -11,12 +12,11 @@ from aiogram.types import (
 from config import user_photos, user_data, log_message
 from document_generator import generate_document
 from aiogram.types import FSInputFile
-from database import Database
+from database import db
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 router = Router()
-db = Database()
 
 
 class UserForm(StatesGroup):
@@ -483,7 +483,7 @@ async def photos_done_handler(callback: types.CallbackQuery, state: FSMContext):
     user_data[user_id]["photos"] = user_photos.get(user_id, [])
 
     await log_message("Завершил загрузку фото", user=username)
-    await update_report_message(callback.message, user_id)
+    await delete_and_update(callback.message, user_id)
     await state.clear()
     await callback.answer()
 
@@ -752,7 +752,7 @@ async def process_document(
             return
 
         output_file = await generate_document(user_id, user_info)
-        
+
         sent_message = await message.answer_document(FSInputFile(output_file))
 
         date = user_info.get("date")
@@ -778,51 +778,80 @@ async def process_document(
 
 
 @router.message(F.text == "📊 Просмотреть отчеты")
-async def view_reports_handler(message: Message, state: FSMContext):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="По дате", callback_data="view_by_date"),
-            InlineKeyboardButton(text="По адресу", callback_data="view_by_address"),
+async def view_reports_handler(message: Message):
+    user = message.from_user.username or message.from_user.id
+    await log_message(f"[USER: {user}] [LOG] - Начал просмотр отчетов")
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="По дате", callback_data="view_by_date"),
+                InlineKeyboardButton(text="По номеру", callback_data="view_by_number"),
+            ]
         ]
-    ])
+    )
     await message.reply("Выберите способ поиска отчетов:", reply_markup=keyboard)
 
 
 @router.callback_query(F.data == "view_by_date")
 async def view_reports_by_date(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Введите дату 'от' в формате ДД.ММ.ГГГГ:")
+    user = callback.from_user.username or callback.from_user.id
+    await log_message(f"[USER: {user}] [LOG] - Выбрал просмотр отчетов по дате")
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Все за вчера", callback_data="view_yesterday"
+                ),
+                InlineKeyboardButton(text="Все за сегодня", callback_data="view_today"),
+            ]
+        ]
+    )
+    await callback.message.edit_text(
+        "Введите дату 'от' в формате ДД.ММ.ГГГГ, либо выберите ниже:",
+        reply_markup=keyboard,
+    )
     await state.set_state(UserForm.waiting_for_start_date)
+    await callback.answer()
 
 
-@router.callback_query(F.data == "view_by_address")
-async def view_reports_by_address(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Введите адрес для поиска отчетов:")
-    await state.set_state(UserForm.waiting_for_address_search)
+@router.callback_query(F.data == "view_yesterday")
+async def view_reports_yesterday(callback: types.CallbackQuery):
+    user = callback.from_user.username or callback.from_user.id
+    await log_message(f"[USER: {user}] [LOG] - Запросил отчеты за вчера")
+
+    user_id = callback.from_user.id
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d.%m.%Y")
+
+    report_ids = await db.get_reports(user_id, yesterday, yesterday)
+    await send_reports(callback.message, report_ids)
+    await callback.answer()
 
 
-@router.message(UserForm.waiting_for_address_search)
-async def address_search_handler(message: Message, state: FSMContext):
-    address = message.text.strip()
-    user_id = message.from_user.id
+@router.callback_query(F.data == "view_today")
+async def view_reports_today(callback: types.CallbackQuery):
+    user = callback.from_user.username or callback.from_user.id
+    await log_message(f"[USER: {user}] [LOG] - Запросил отчеты за сегодня")
 
-    report_ids = await db.get_reports_by_address(user_id, address)
-    if report_ids:
-        for report_id in report_ids:
-            try:
-                await message.bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=report_id[0])
-            except Exception as e:
-                await message.reply(f"❌ Не удалось переслать отчет: {str(e)}")
-    else:
-        await message.reply("📄 Нет отчетов по указанному адресу.")
+    user_id = callback.from_user.id
+    today = datetime.now().strftime("%d.%m.%Y")
 
-    await state.clear()
+    report_ids = await db.get_reports(user_id, today, today)
+    await send_reports(callback.message, report_ids)
+    await callback.answer()
 
 
 @router.message(UserForm.waiting_for_start_date)
 async def start_date_handler(message: Message, state: FSMContext):
+    user = message.from_user.username or message.from_user.id
+    await log_message(f"[USER: {user}] [LOG] - Вводит начальную дату отчета")
+
     start_date = message.text.strip()
     if not validate_date(start_date):
-        await message.reply("❌ Пожалуйста, введите корректную дату 'от' в формате ДД.ММ.ГГГГ:")
+        await message.reply(
+            "❌ Пожалуйста, введите корректную дату 'от' в формате ДД.ММ.ГГГГ:"
+        )
         return
 
     await state.update_data(start_date=start_date)
@@ -832,31 +861,79 @@ async def start_date_handler(message: Message, state: FSMContext):
 
 @router.message(UserForm.waiting_for_end_date)
 async def end_date_handler(message: Message, state: FSMContext):
+    user = message.from_user.username or message.from_user.id
+    await log_message(f"[USER: {user}] [LOG] - Вводит конечную дату отчета")
+
     end_date = message.text.strip()
-    user_id = message.from_user.id
     user_data_state = await state.get_data()
     start_date = user_data_state.get("start_date")
 
     if not validate_date(end_date):
-        await message.reply("❌ Пожалуйста, введите корректную дату 'до' в формате ДД.ММ.ГГГГ:")
+        await message.reply(
+            "❌ Пожалуйста, введите корректную дату 'до' в формате ДД.ММ.ГГГГ:"
+        )
         return
 
-    report_ids = await db.get_reports(user_id, start_date, end_date)
+    report_ids = await db.get_reports(message.from_user.id, start_date, end_date)
+    await send_reports(message, report_ids)
+    await state.clear()
+
+
+@router.callback_query(F.data == "view_by_number")
+async def view_reports_by_address(callback: types.CallbackQuery, state: FSMContext):
+    user = callback.from_user.username or callback.from_user.id
+    await log_message(f"[USER: {user}] [LOG] - Выбрал просмотр отчетов по номеру")
+
+    await callback.message.edit_text("Введите номер для поиска отчетов:")
+    await state.set_state(UserForm.waiting_for_address_search)
+    await callback.answer()
+
+
+@router.message(UserForm.waiting_for_address_search)
+async def number_search_handler(message: Message, state: FSMContext):
+    user = message.from_user.username or message.from_user.id
+    await log_message(f"[USER: {user}] [LOG] - Выполняет поиск отчетов по номеру")
+
+    number = message.text.strip()
+    user_id = message.from_user.id
+
+    report_ids = await db.get_reports_by_number(user_id, number)
     if report_ids:
         for report_id in report_ids:
             try:
-                await message.bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=report_id[0])
+                await message.bot.forward_message(
+                    chat_id=user_id,
+                    from_chat_id=message.chat.id,
+                    message_id=report_id[0],
+                )
             except Exception as e:
                 await message.reply(f"❌ Не удалось переслать отчет: {str(e)}")
     else:
-        await message.reply("📄 Нет отчетов за указанный период.")
+        await message.reply("📄 Нет отчетов с указанным номером.")
 
     await state.clear()
 
 
+async def send_reports(message, report_ids):
+    user = message.chat.username or message.chat.id
+    await log_message(f"[USER: {user}] [LOG] - Отправляет отчеты")
+
+    user_id = message.chat.id
+    if report_ids:
+        for report_id in report_ids:
+            try:
+                await message.bot.forward_message(
+                    chat_id=user_id,
+                    from_chat_id=message.chat.id,
+                    message_id=report_id[0],
+                )
+            except Exception as e:
+                await message.reply(f"❌ Ошибка при пересылке отчета: {str(e)}")
+    else:
+        await message.reply("📄 Нет отчетов за указанный период.")
+
+
 def validate_date(date_str):
-    import re
-    from datetime import datetime
     if not re.match(r"^\d{2}\.\d{2}\.\d{4}$", date_str):
         return False
     try:
@@ -874,9 +951,7 @@ async def fetch_reports(user_id, start_date, end_date):
 
     report_files = []
     for report in reports:
-        report_file_path = report['file_path']
+        report_file_path = report["file_path"]
         report_files.append(report_file_path)
 
     return report_files
-
-    

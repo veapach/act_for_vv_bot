@@ -4,6 +4,7 @@ from bot_instance import bot
 from routers import router
 import asyncio
 from datetime import datetime
+from database import db
 
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -18,6 +19,7 @@ async def on_shutdown(dispatcher: Dispatcher):
 async def main():
     start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     dp.include_router(router)
+    await db.initialize_db()
     await bot.delete_webhook(drop_pending_updates=True)
     print(f"[LOG] [{start_time}] - Бот запущен успешно")
     print("Для остановки бота введите 'stop' или нажмите Ctrl+C")
