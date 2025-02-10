@@ -13,6 +13,7 @@ from document_generator import generate_document
 from aiogram.types import FSInputFile
 from database import Database
 import os
+from datetime import datetime
 
 router = Router()
 db = Database()
@@ -31,14 +32,18 @@ class UserForm(StatesGroup):
     waiting_for_defects = State()
     checklist = State()
     waiting_for_additional_works = State()
+    waiting_for_start_date = State()
+    waiting_for_end_date = State()
+    waiting_for_address_search = State()
 
 
 new_report_button = KeyboardButton(text="📝 Новый отчет")
+view_reports_button = KeyboardButton(text="📊 Просмотреть отчеты")
 done_button = KeyboardButton(text="✅ Готово")
 cancel_button = KeyboardButton(text="❌ Отмена")
 
 main_keyboard = ReplyKeyboardMarkup(
-    keyboard=[[new_report_button]], resize_keyboard=True
+    keyboard=[[new_report_button], [view_reports_button]], resize_keyboard=True
 )
 report_keyboard = ReplyKeyboardMarkup(
     keyboard=[[done_button, cancel_button]], resize_keyboard=True
@@ -603,8 +608,28 @@ async def start_checklist(callback: types.CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "generate_report")
 async def generate_report_handler(callback: types.CallbackQuery):
     user_id = callback.from_user.id
+    user = f"{callback.from_user.first_name} {callback.from_user.last_name} (ID: {user_id})"
     await callback.message.edit_text("📝 Создаю документ, подождите немного...")
-    await process_document(callback.message, user_id, callback)
+
+    try:
+        output_file = await process_document(callback.message, user_id, callback)
+
+        sent_message = await callback.message.answer_document(FSInputFile(output_file))
+
+        await log_message("Документ успешно отправлен", user=user)
+
+        os.remove(output_file)
+
+        await callback.message.answer(
+            "✅ Отчет создан!\nНажмите 📝 Новый отчет для создания нового отчета",
+            reply_markup=main_keyboard,
+        )
+    except Exception as e:
+        error_text = f"Ошибка при создании документа: {str(e)}"
+        await log_message(error_text, user=user)
+        await callback.message.edit_text(
+            "❌ Произошла ошибка при создании документа. Попробуйте еще раз."
+        )
 
 
 @router.callback_query(F.data.startswith("work_"))
@@ -727,7 +752,12 @@ async def process_document(
             return
 
         output_file = await generate_document(user_id, user_info)
-        await message.answer_document(FSInputFile(output_file))
+        
+        sent_message = await message.answer_document(FSInputFile(output_file))
+
+        date = user_info.get("date")
+        address = user_info.get("address")
+        await db.add_report(user_id, sent_message.message_id, date, address)
 
         await log_message("Документ успешно отправлен", user=username)
 
@@ -745,3 +775,108 @@ async def process_document(
         await message.answer(str(ve))
     except Exception as e:
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
+
+@router.message(F.text == "📊 Просмотреть отчеты")
+async def view_reports_handler(message: Message, state: FSMContext):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="По дате", callback_data="view_by_date"),
+            InlineKeyboardButton(text="По адресу", callback_data="view_by_address"),
+        ]
+    ])
+    await message.reply("Выберите способ поиска отчетов:", reply_markup=keyboard)
+
+
+@router.callback_query(F.data == "view_by_date")
+async def view_reports_by_date(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите дату 'от' в формате ДД.ММ.ГГГГ:")
+    await state.set_state(UserForm.waiting_for_start_date)
+
+
+@router.callback_query(F.data == "view_by_address")
+async def view_reports_by_address(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите адрес для поиска отчетов:")
+    await state.set_state(UserForm.waiting_for_address_search)
+
+
+@router.message(UserForm.waiting_for_address_search)
+async def address_search_handler(message: Message, state: FSMContext):
+    address = message.text.strip()
+    user_id = message.from_user.id
+
+    report_ids = await db.get_reports_by_address(user_id, address)
+    if report_ids:
+        for report_id in report_ids:
+            try:
+                await message.bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=report_id[0])
+            except Exception as e:
+                await message.reply(f"❌ Не удалось переслать отчет: {str(e)}")
+    else:
+        await message.reply("📄 Нет отчетов по указанному адресу.")
+
+    await state.clear()
+
+
+@router.message(UserForm.waiting_for_start_date)
+async def start_date_handler(message: Message, state: FSMContext):
+    start_date = message.text.strip()
+    if not validate_date(start_date):
+        await message.reply("❌ Пожалуйста, введите корректную дату 'от' в формате ДД.ММ.ГГГГ:")
+        return
+
+    await state.update_data(start_date=start_date)
+    await message.reply("Введите дату 'до' в формате ДД.ММ.ГГГГ:")
+    await state.set_state(UserForm.waiting_for_end_date)
+
+
+@router.message(UserForm.waiting_for_end_date)
+async def end_date_handler(message: Message, state: FSMContext):
+    end_date = message.text.strip()
+    user_id = message.from_user.id
+    user_data_state = await state.get_data()
+    start_date = user_data_state.get("start_date")
+
+    if not validate_date(end_date):
+        await message.reply("❌ Пожалуйста, введите корректную дату 'до' в формате ДД.ММ.ГГГГ:")
+        return
+
+    report_ids = await db.get_reports(user_id, start_date, end_date)
+    if report_ids:
+        for report_id in report_ids:
+            try:
+                await message.bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=report_id[0])
+            except Exception as e:
+                await message.reply(f"❌ Не удалось переслать отчет: {str(e)}")
+    else:
+        await message.reply("📄 Нет отчетов за указанный период.")
+
+    await state.clear()
+
+
+def validate_date(date_str):
+    import re
+    from datetime import datetime
+    if not re.match(r"^\d{2}\.\d{2}\.\d{4}$", date_str):
+        return False
+    try:
+        datetime.strptime(date_str, "%d.%m.%Y")
+        return True
+    except ValueError:
+        return False
+
+
+async def fetch_reports(user_id, start_date, end_date):
+    reports = await db.get_reports(user_id, start_date, end_date)
+
+    if not reports:
+        return []
+
+    report_files = []
+    for report in reports:
+        report_file_path = report['file_path']
+        report_files.append(report_file_path)
+
+    return report_files
+
+    
