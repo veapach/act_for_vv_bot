@@ -315,7 +315,7 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
 
     messages_map = {
         "photos": "📸 Отправьте фотографии для отчета (можно отправить несколько). После завершения нажмите кнопку Готово",
-        "date": "📅 Введите дату в формате ДД.ММ.ГГГГ",
+        "date": "📅 Введите дату в формате ДД.ММ.ГГГГ или выберите:",
         "address": "📍 Введите адрес",
         "classification": "🏷️ Выберите классификацию",
         "materials": "🛠️ Введите материалы или нажмите Пропуск",
@@ -358,6 +358,18 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
             ]
         )
         reply_markup = done_keyboard
+    elif action == "date":
+        date_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="📅 Сегодня", callback_data="date_today"),
+                    InlineKeyboardButton(
+                        text="📅 Вчера", callback_data="date_yesterday"
+                    ),
+                ]
+            ]
+        )
+        reply_markup = date_keyboard
     elif action == "classification":
         classification_keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -380,7 +392,13 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
             ]
         )
         reply_markup = classification_keyboard
-    elif action in ["materials", "recommendations", "defects", "additional_works"]:
+    elif action in [
+        "materials",
+        "recommendations",
+        "defects",
+        "additional_works",
+        "comments",
+    ]:
         reply_markup = skip_keyboard
 
     sent_message = await callback.message.edit_text(
@@ -474,6 +492,9 @@ async def photo_handler(message: Message, state: FSMContext):
     if user_id not in user_photos:
         user_photos[user_id] = []
 
+    if message.message_id not in user_data[user_id]["messages_to_delete"]:
+        user_data[user_id]["messages_to_delete"].append(message.message_id)
+
     file_id = None
     if message.photo:
         highest_quality_photo = max(message.photo, key=lambda p: p.file_size)
@@ -494,10 +515,11 @@ async def photo_handler(message: Message, state: FSMContext):
                 [InlineKeyboardButton(text="✅ Готово", callback_data="photos_done")]
             ]
         )
-        await message.reply(
+        reply_msg = await message.reply(
             "📸 Фото добавлено! Отправьте еще или нажмите Готово",
             reply_markup=done_keyboard,
         )
+        user_data[user_id]["messages_to_delete"].append(reply_msg.message_id)
 
     await log_message(f"Добавил фото", user=username)
 
@@ -512,6 +534,24 @@ async def photos_done_handler(callback: types.CallbackQuery, state: FSMContext):
 
     user_data[user_id]["photos"] = user_photos.get(user_id, [])
     await log_message("Завершил загрузку фото", user=username)
+    await delete_and_update(callback.message, user_id)
+    await state.clear()
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("date_"))
+async def handle_date_selection(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    action = callback.data.split("_")[1]
+
+    if action == "today":
+        selected_date = datetime.now()
+    elif action == "yesterday":
+        selected_date = datetime.now() - timedelta(days=1)
+
+    formatted_date = selected_date.strftime("%d.%m.%Y")
+    user_data[user_id]["date"] = formatted_date
+
     await delete_and_update(callback.message, user_id)
     await state.clear()
     await callback.answer()
@@ -582,6 +622,7 @@ async def skip_handler(callback: types.CallbackQuery, state: FSMContext):
         "UserForm:waiting_for_recommendations": "",
         "UserForm:waiting_for_defects": "",
         "UserForm:waiting_for_additional_works": "",
+        "UserForm:waiting_for_comments": "",
     }
 
     if current_state in default_values:
