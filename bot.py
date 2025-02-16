@@ -18,6 +18,9 @@ async def on_shutdown(dispatcher: Dispatcher):
 
 async def main():
     start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    await bot.session.close()
+
     dp.include_router(router)
     await db.initialize_db()
     await bot.delete_webhook(drop_pending_updates=True)

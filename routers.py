@@ -15,6 +15,7 @@ from aiogram.types import FSInputFile
 from database import db
 import os
 from datetime import datetime, timedelta
+import asyncio
 
 router = Router()
 
@@ -30,6 +31,7 @@ class UserForm(StatesGroup):
     waiting_for_materials = State()
     waiting_for_recommendations = State()
     waiting_for_defects = State()
+    waiting_for_comments = State()
     checklist = State()
     waiting_for_additional_works = State()
     waiting_for_start_date = State()
@@ -132,17 +134,37 @@ def get_report_keyboard(user_id):
                 callback_data="upload_additional_works",
             )
         ],
+        [
+            InlineKeyboardButton(
+                text=f"{'✅' if 'comments' in data else '❌'} Комментарии",
+                callback_data="upload_comments",
+            )
+        ],
     ]
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 async def update_report_message(message: Message, user_id: int):
-    await message.answer(
+    if "report_message_id" in user_data[user_id]:
+        try:
+            old_message_id = user_data[user_id]["report_message_id"]
+            if old_message_id not in user_data[user_id]["messages_to_delete"]:
+                user_data[user_id]["messages_to_delete"].append(old_message_id)
+        except Exception as e:
+            print(f"Ошибка при добавлении старого сообщения в список удаления: {e}")
+
+    sent_message = await message.answer(
         "📋 Создание отчета\nВыберите, что хотите заполнить:",
         reply_markup=get_report_keyboard(user_id),
         parse_mode="HTML",
     )
+
+    user_data[user_id]["report_message_id"] = sent_message.message_id
+    if sent_message.message_id not in user_data[user_id]["messages_to_delete"]:
+        user_data[user_id]["messages_to_delete"].append(sent_message.message_id)
+
+    return sent_message
 
 
 @router.message(F.text == "/start")
@@ -220,13 +242,18 @@ async def new_report_handler(message: Message, state: FSMContext):
         message.from_user.username or f"{message.from_user.first_name} (ID: {user_id})"
     )
     await log_message("Начал создание нового отчета", user=username)
-    user_data[user_id] = {}
+
+    user_data[user_id] = {"messages_to_delete": [message.message_id]}
     user_photos[user_id] = []
-    await message.answer(
+
+    sent_message = await message.answer(
         "Создание нового отчета начато. Выберите, что хотите заполнить:",
         reply_markup=report_keyboard,
     )
-    await update_report_message(message, user_id)
+    user_data[user_id]["messages_to_delete"].append(sent_message.message_id)
+
+    report_message = await update_report_message(message, user_id)
+    user_data[user_id]["report_message_id"] = report_message.message_id
 
 
 @router.message(F.text == "❌ Отмена")
@@ -269,7 +296,6 @@ async def done_button_handler(message: Message, state: FSMContext):
         await message.answer(f"❌ Необходимо заполнить: {missing_text}")
         return
 
-    await message.answer("📝 Создаю документ, подождите немного...")
     await process_document(message, state, user_id)
 
 
@@ -297,6 +323,7 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
         "defects": "🔍 Введите выявленные дефекты или нажмите Пропуск",
         "works": "📋 Заполните чек-лист работ",
         "additional_works": "🔧 Введите дополнительные работы или нажмите Пропуск",
+        "comments": "💭 Введите комментарии или нажмите Пропуск",
     }
 
     states_map = {
@@ -309,6 +336,7 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
         "defects": UserForm.waiting_for_defects,
         "works": UserForm.checklist,
         "additional_works": UserForm.waiting_for_additional_works,
+        "comments": UserForm.waiting_for_comments,
     }
 
     skip_keyboard = InlineKeyboardMarkup(
@@ -355,9 +383,11 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
     elif action in ["materials", "recommendations", "defects", "additional_works"]:
         reply_markup = skip_keyboard
 
-    await callback.message.edit_text(
+    sent_message = await callback.message.edit_text(
         messages_map[action], reply_markup=reply_markup, parse_mode="HTML"
     )
+    if action != "address":
+        user_data[user.id]["messages_to_delete"].append(sent_message.message_id)
 
 
 @router.callback_query(F.data.startswith("classification_"))
@@ -481,7 +511,6 @@ async def photos_done_handler(callback: types.CallbackQuery, state: FSMContext):
     )
 
     user_data[user_id]["photos"] = user_photos.get(user_id, [])
-
     await log_message("Завершил загрузку фото", user=username)
     await delete_and_update(callback.message, user_id)
     await state.clear()
@@ -491,27 +520,22 @@ async def photos_done_handler(callback: types.CallbackQuery, state: FSMContext):
 @router.message(UserForm.waiting_for_date)
 async def date_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    username = (
-        message.from_user.username or f"{message.from_user.first_name} (ID: {user_id})"
-    )
-
-    import re
 
     if not re.match(r"^\d{2}\.\d{2}\.\d{4}$", message.text):
         await message.reply("❌ Пожалуйста, введите дату в формате ДД.ММ.ГГГГ")
         return
 
     try:
-        from datetime import datetime
-
         datetime.strptime(message.text, "%d.%m.%Y")
     except ValueError:
         await message.reply("❌ Пожалуйста, введите корректную дату")
         return
 
     user_data[user_id]["date"] = message.text
-    await log_message(f"Добавил дату: {message.text}", user=username)
-    await update_report_message(message, user_id)
+    user_data[user_id]["messages_to_delete"].append(message.message_id)
+
+    report_message = await update_report_message(message, user_id)
+    user_data[user_id]["messages_to_delete"].append(report_message.message_id)
     await state.clear()
 
 
@@ -727,6 +751,14 @@ async def additional_works_handler(message: Message, state: FSMContext):
     await state.clear()
 
 
+@router.message(UserForm.waiting_for_comments)
+async def comments_handler(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user_data[user_id]["comments"] = message.text
+    await delete_and_update(message, user_id)
+    await state.clear()
+
+
 async def process_document(
     message: Message, state: FSMContext, user_id: int, original_message=None
 ):
@@ -741,18 +773,15 @@ async def process_document(
         await log_message("Начал создание документа", user=username)
 
         user_info = user_data[user_id]
-        photos = user_info.get("photos", [])
 
-        user_record = await db.get_user(user_id)
-        if not user_record:
-            await message.answer(
-                "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
-            )
-            await state.set_state(UserForm.waiting_for_last_name)
-            return
+        if message.message_id not in user_info.get("messages_to_delete", []):
+            user_info.setdefault("messages_to_delete", []).append(message.message_id)
+
+        if "report_message_id" in user_info:
+            if user_info["report_message_id"] not in user_info["messages_to_delete"]:
+                user_info["messages_to_delete"].append(user_info["report_message_id"])
 
         output_file = await generate_document(user_id, user_info)
-
         sent_message = await message.answer_document(FSInputFile(output_file))
 
         date = user_info.get("date")
@@ -761,16 +790,29 @@ async def process_document(
 
         await log_message("Документ успешно отправлен", user=username)
 
-        os.remove(output_file)
+        messages_to_delete = list(set(user_info.get("messages_to_delete", [])))
+        for msg_id in messages_to_delete:
+            try:
+                await message.bot.delete_message(
+                    chat_id=message.chat.id, message_id=msg_id
+                )
+                await asyncio.sleep(0.1)
+            except Exception:
+                pass
+
         if user_id in user_photos:
             del user_photos[user_id]
         if user_id in user_data:
             del user_data[user_id]
 
+        os.remove(output_file)
+
         await message.answer(
-            "✅ Отчет создан!\nНажмите 📝 Новый отчет для создания нового отчета",
+            "✅ Отчет создан!\nНажмите <b>📝 Новый отчет</b> для создания нового отчета",
             reply_markup=main_keyboard,
+            parse_mode="HTML",
         )
+
     except ValueError as ve:
         await message.answer(str(ve))
     except Exception as e:

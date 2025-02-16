@@ -92,6 +92,10 @@ async def generate_document(user_id, user_info):
                 if "[фио]" in cell.text:
                     cell.text = cell.text.replace("[фио]", full_name)
 
+                if "[комментарии]" in cell.text:
+                    comments = user_info.get("comments", "")
+                    cell.text = cell.text.replace("[комментарии]", comments)
+
     date = user_info["date"]
     address = user_info["address"]
     output_path = f"Акт выполненных работ {date}  {address}.docx"

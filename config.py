@@ -12,6 +12,9 @@ if not API_TOKEN:
         f"API token for environment '{ENVIRONMENT}' not found in .env file"
     )
 DB_PATH = os.getenv("DB_PATH", "users.db")
+if not os.path.exists(DB_PATH):
+    with open(DB_PATH, "w") as f:
+        pass
 
 user_photos = {}
 user_data = {}
