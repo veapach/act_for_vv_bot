@@ -175,7 +175,7 @@ async def start_handler(message: Message, state: FSMContext):
     if user:
         first_name, last_name = user
         await message.reply(
-            f"С возвращением, {first_name} {last_name}! Нажми кнопку 📝 Новый отчет, чтобы начать.",
+            f"С возвращением, {first_name} {last_name}! Нажми кнопку 📝 Новый отчет, чтобы начать.\nИли воспользуйся сайтом https://crmlite-vv.ru/",
             reply_markup=main_keyboard,
             parse_mode="HTML",
         )
@@ -218,7 +218,7 @@ async def first_name_handler(message: Message, state: FSMContext):
     )
 
     await message.reply(
-        f"Привет, {first_name} {last_name}! Нажми кнопку 📝 Новый отчет, чтобы начать.",
+        f"Привет, {first_name} {last_name}! Нажми кнопку 📝 Новый отчет, чтобы начать.\nИли воспользуйся сайтом https://crmlite-vv.ru/",
         reply_markup=main_keyboard,
         parse_mode="HTML",
     )
@@ -233,7 +233,7 @@ async def new_report_handler(message: Message, state: FSMContext):
     user_record = await db.get_user(user_id)
     if not user_record:
         await message.reply(
-            "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
+            "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации.\nИли воспользуйся сайтом https://crmlite-vv.ru/"
         )
         await state.set_state(UserForm.waiting_for_last_name)
         return
@@ -273,7 +273,7 @@ async def done_button_handler(message: Message, state: FSMContext):
     user_record = await db.get_user(user_id)
     if not user_record:
         await message.reply(
-            "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации."
+            "❌ Вы не зарегистрированы. Пожалуйста, используйте команду /start для регистрации.\nИли воспользуйся сайтом https://crmlite-vv.ru/"
         )
         await state.set_state(UserForm.waiting_for_last_name)
         return
@@ -686,14 +686,14 @@ async def generate_report_handler(callback: types.CallbackQuery):
         os.remove(output_file)
 
         await callback.message.answer(
-            "✅ Отчет создан!\nНажмите 📝 Новый отчет для создания нового отчета",
+            "✅ Отчет создан!\nНажмите 📝 Новый отчет для создания нового отчета\nИли воспользуйся сайтом https://crmlite-vv.ru/",
             reply_markup=main_keyboard,
         )
     except Exception as e:
         error_text = f"Ошибка при создании документа: {str(e)}"
         await log_message(error_text, user=user)
         await callback.message.edit_text(
-            "❌ Произошла ошибка при создании документа. Попробуйте еще раз."
+            "❌ Произошла ошибка при создании документа. Попробуйте еще раз.\nИли воспользуйся сайтом https://crmlite-vv.ru/"
         )
 
 
@@ -780,7 +780,7 @@ async def finish_report_handler(callback: types.CallbackQuery):
         error_text = f"Ошибка при создании документа: {str(e)}"
         await log_message(error_text, user=username)
         await callback.message.edit_text(
-            "❌ Произошла ошибка при создании документа. Попробуйте еще раз."
+            "❌ Произошла ошибка при создании документа. Попробуйте еще раз.\nИли воспользуйся сайтом https://crmlite-vv.ru/"
         )
 
 
@@ -823,10 +823,15 @@ async def process_document(
                 user_info["messages_to_delete"].append(user_info["report_message_id"])
 
         output_file = await generate_document(user_id, user_info)
-        sent_message = await message.answer_document(FSInputFile(output_file))
-
         date = user_info.get("date")
         address = user_info.get("address")
+        sent_message = await message.answer_document(
+            FSInputFile(
+                path=os.path.join(output_file),
+                filename=f"Акт выполненных работ {date} {address}",
+            )
+        )
+
         await db.add_report(user_id, sent_message.message_id, date, address)
 
         await log_message("Документ успешно отправлен", user=username)
@@ -849,7 +854,7 @@ async def process_document(
         os.remove(output_file)
 
         await message.answer(
-            "✅ Отчет создан!\nНажмите <b>📝 Новый отчет</b> для создания нового отчета",
+            "✅ Отчет создан!\nНажмите <b>📝 Новый отчет</b> для создания нового отчета\nИли воспользуйся сайтом https://crmlite-vv.ru/",
             reply_markup=main_keyboard,
             parse_mode="HTML",
         )
@@ -857,7 +862,9 @@ async def process_document(
     except ValueError as ve:
         await message.answer(str(ve))
     except Exception as e:
-        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+        await message.answer(
+            f"❌ Произошла ошибка: {str(e)}\nИли воспользуйся сайтом https://crmlite-vv.ru/"
+        )
 
 
 @router.message(F.text == "📊 Просмотреть отчеты")

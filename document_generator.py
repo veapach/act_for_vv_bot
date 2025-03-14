@@ -98,6 +98,6 @@ async def generate_document(user_id, user_info):
 
     date = user_info["date"]
     address = user_info["address"]
-    output_path = f"Акт выполненных работ {date}  {address}.docx"
+    output_path = f"Акт выполненных работ {date} {address}.docx"
     doc.save(output_path)
     return output_path
