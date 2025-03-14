@@ -155,7 +155,7 @@ async def update_report_message(message: Message, user_id: int):
             print(f"Ошибка при добавлении старого сообщения в список удаления: {e}")
 
     sent_message = await message.answer(
-        "📋 Создание отчета\nВыберите, что хотите заполнить:",
+        "📋 Выберите, что хотите заполнить:",
         reply_markup=get_report_keyboard(user_id),
         parse_mode="HTML",
     )
@@ -247,7 +247,7 @@ async def new_report_handler(message: Message, state: FSMContext):
     user_photos[user_id] = []
 
     sent_message = await message.answer(
-        "Создание нового отчета начато. Выберите, что хотите заполнить:",
+        "Создание нового отчета начато. Главное меню\nИли воспользуйся сайтом https://crmlite-vv.ru/",
         reply_markup=report_keyboard,
     )
     user_data[user_id]["messages_to_delete"].append(sent_message.message_id)
