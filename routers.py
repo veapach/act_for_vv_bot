@@ -26,6 +26,9 @@ class UserForm(StatesGroup):
     waiting_for_photos = State()
     waiting_for_date = State()
     waiting_for_address = State()
+    waiting_for_machine_name = State()
+    waiting_for_machine_number = State()
+    waiting_for_inventory_number = State()
     waiting_for_classification = State()
     waiting_for_classification_input = State()
     waiting_for_materials = State()
@@ -96,6 +99,24 @@ def get_report_keyboard(user_id):
             InlineKeyboardButton(
                 text=f"{'✅' if 'address' in data else '❌'} Адрес",
                 callback_data="upload_address",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"{'✅' if 'machine_name' in data else '❌'} Название оборудования",
+                callback_data="upload_machine_name",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"{'✅' if 'machine_number' in data else '❌'} Номер оборудования",
+                callback_data="upload_machine_number",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"{'✅' if 'inventory_number' in data else '❌'} Инвентаризационный номер",
+                callback_data="upload_inventory_number",
             )
         ],
         [
@@ -281,6 +302,9 @@ async def done_button_handler(message: Message, state: FSMContext):
     required_fields = [
         "date",
         "address",
+        "machine_name",
+        "machine_number",
+        "inventory_number",
         "classification",
         "materials",
         "recommendations",
@@ -317,6 +341,9 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
         "photos": "📸 Отправьте фотографии для отчета (можно отправить несколько). После завершения нажмите кнопку Готово",
         "date": "📅 Введите дату в формате ДД.ММ.ГГГГ или выберите:",
         "address": "📍 Введите адрес",
+        "machine_name": "⚙️ Введите название оборудования",
+        "machine_number": "🔢 Введите номер оборудования",
+        "inventory_number": "📦 Введите инвентаризационный номер",
         "classification": "🏷️ Выберите классификацию",
         "materials": "🛠️ Введите материалы или нажмите Пропуск",
         "recommendations": "💡 Введите рекомендации или нажмите Пропуск",
@@ -330,6 +357,9 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
         "photos": UserForm.waiting_for_photos,
         "date": UserForm.waiting_for_date,
         "address": UserForm.waiting_for_address,
+        "machine_name": UserForm.waiting_for_machine_name,
+        "machine_number": UserForm.waiting_for_machine_number,
+        "inventory_number": UserForm.waiting_for_inventory_number,
         "classification": UserForm.waiting_for_classification,
         "materials": UserForm.waiting_for_materials,
         "recommendations": UserForm.waiting_for_recommendations,
@@ -393,6 +423,9 @@ async def upload_handler(callback: types.CallbackQuery, state: FSMContext):
         )
         reply_markup = classification_keyboard
     elif action in [
+        "machine_name",
+        "machine_number",
+        "inventory_number",
         "materials",
         "recommendations",
         "defects",
@@ -587,6 +620,30 @@ async def address_handler(message: Message, state: FSMContext):
     await state.clear()
 
 
+@router.message(UserForm.waiting_for_machine_name)
+async def machine_name_handler(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user_data[user_id]["machine_name"] = message.text
+    await delete_and_update(message, user_id)
+    await state.clear()
+
+
+@router.message(UserForm.waiting_for_machine_number)
+async def machine_number_handler(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user_data[user_id]["machine_number"] = message.text
+    await delete_and_update(message, user_id)
+    await state.clear()
+
+
+@router.message(UserForm.waiting_for_inventory_number)
+async def inventory_number_handler(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user_data[user_id]["inventory_number"] = message.text
+    await delete_and_update(message, user_id)
+    await state.clear()
+
+
 @router.message(UserForm.waiting_for_materials)
 async def materials_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -617,6 +674,9 @@ async def skip_handler(callback: types.CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
 
     default_values = {
+        "UserForm:waiting_for_machine_name": "",
+        "UserForm:waiting_for_machine_number": "",
+        "UserForm:waiting_for_inventory_number": "",
         "UserForm:waiting_for_classification": "",
         "UserForm:waiting_for_materials": "",
         "UserForm:waiting_for_recommendations": "",
@@ -679,7 +739,7 @@ async def generate_report_handler(callback: types.CallbackQuery):
     try:
         output_file = await process_document(callback.message, user_id, callback)
 
-        sent_message = await callback.message.answer_document(FSInputFile(output_file))
+        await callback.message.answer_document(FSInputFile(output_file))
 
         await log_message("Документ успешно отправлен", user=user)
 
@@ -753,6 +813,9 @@ async def finish_report_handler(callback: types.CallbackQuery):
         "photos",
         "date",
         "address",
+        "machine_name",
+        "machine_number",
+        "inventory_number",
         "classification",
         "materials",
         "recommendations",
@@ -828,7 +891,7 @@ async def process_document(
         sent_message = await message.answer_document(
             FSInputFile(
                 path=os.path.join(output_file),
-                filename=f"Акт выполненных работ {date} {address}",
+                filename=f"Акт выполненных работ {date} {address}.docx",
             )
         )
 
